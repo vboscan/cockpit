@@ -36,6 +36,7 @@ Remove all of it again with `./install.sh --uninstall`.
 | Attention | Optional. What a headless Claude run thinks needs you, colour-coded by severity |
 | Resources | CPU, memory and disk bars, load averages, battery, process count |
 | Top apps | The five biggest consumers of CPU and the five biggest consumers of memory, side by side |
+| Now playing | While [ncspot](https://github.com/hrkfdn/ncspot) runs: the current track and artist, the next track, and the playlist |
 | Network | Interface and Wi-Fi name, private IP, gateway, other IPs, DNS, public IP, ISP, NAT, internet speed |
 | Tailscale | Connection state, tailnet, this device, exit node, every peer with online state, speed to one peer |
 | Route to internet | Each hop from this machine until the route reaches Google's network, with address kind, latency and network owner |
@@ -86,6 +87,23 @@ The heading takes the colour of the worst finding, so one glance is enough.
 - **What leaves the machine:** the snapshot goes to Anthropic through Claude Code. It contains what the banner shows, including host name, user names, IP addresses, Wi-Fi name, app names and Tailscale peers.
 - **Opt-in:** it is off unless `VICKS_REVIEW=1` is set, and it needs the `claude` command.
 
+### Now playing
+
+While ncspot, a terminal Spotify client, is running, the banner shows what it is playing.
+
+```
+NOW PLAYING ncspot · 1:12/3:06 ─────────────────
+  ▶ Fight Like A Girl (feat. K.Flay) · Evanescence, K.Flay
+  Next         Starburster · Fontaines D.C.
+  Playlist     Brussels Rock Night with Imagine Dragons · 138/142
+```
+
+- **Current track, artist and progress** come live from ncspot's socket. `▶` is playing, `‖` paused, `■` stopped.
+- **The playlist and the next track are worked out, not reported.** ncspot does not publish its queue. The banner looks the current track up in ncspot's local cache of your playlists, saved albums and liked songs, and takes the track that follows it there.
+- **A `?` marks a guess.** It appears when the last track change did not follow the list order, which happens with shuffle, after you jump to a track by hand, and for the first track the banner sees. When a track is in several playlists, the one where the previous track sits right before it is chosen.
+- **Not in your library:** a track from search or from someone else's playlist shows its album, and the next track as unknown.
+- The section disappears when ncspot is not running. `VICKS_MUSIC=0` hides it for good. It is never sent to the Claude check.
+
 ### Rotating tips
 
 Under the X-wing, the banner shows five cmux shortcuts and commands at a time and moves to the next five every 30 seconds.
@@ -116,7 +134,7 @@ They never run on a redraw, and their results appear in the banner when they fin
 
 | Data | Refresh |
 |---|---|
-| CPU, memory, disk, battery, users | Every time |
+| CPU, memory, disk, battery, users, now playing | Every time |
 | Tailscale | Every 20 seconds |
 | Public IP and traceroute | Every 10 minutes in the banner, every 2 minutes in the cockpit |
 | macOS and Homebrew updates | Every 6 hours, checked in the background |
@@ -281,6 +299,7 @@ On Linux the banner uses `ip`, `free` and `/proc` in place of the macOS tools, a
 | `VICKS_REVIEW_TTL=3600` | Seconds between checks |
 | `VICKS_REVIEW_MODEL=haiku` | Model used for the check |
 | `VICKS_IPERF_HOST=user@host` | Tailscale peer for the `iperf3` test. Unset means no Tailscale test |
+| `VICKS_MUSIC=0` | Hide the ncspot now-playing section |
 | `VICKS_TIPS=0` | Hide the rotating tips |
 | `VICKS_TIPS_SECONDS=30` | How long each page of tips stays up |
 | `VICKS_TIPS_COUNT=5` | Tips per page |

@@ -37,6 +37,7 @@
 #         VICKS_REVIEW_TTL=3600      seconds between those checks
 #         VICKS_REVIEW_MODEL=haiku   model for the check
 #         VICKS_REVIEW_EFFORT=low    how hard the model thinks (low keeps it quick and cheap)
+#         VICKS_MUSIC=0              hide the ncspot "now playing" section
 #         VICKS_TIPS=0               hide the rotating tips
 #         VICKS_TIPS_SECONDS=30      how long each page of tips stays up
 #         VICKS_TIPS_COUNT=5         tips per page
@@ -528,6 +529,91 @@ proc_snapshot() {
       M\|*) top_mem+=("${line#M|}") ;;
     esac
   done
+}
+
+# Now playing, from ncspot (a terminal Spotify client), when it is running.
+#   - what is playing comes live from ncspot's socket
+#   - ncspot does not publish its queue, so the playlist and the next track are worked
+#     out from its cache of your playlists: the playlist that contains the current
+#     track, preferably the one where the previous track sits right before it
+# Shown only while ncspot runs. VICKS_MUSIC=0 hides it.
+blk_music() {
+  [[ ${VICKS_MUSIC:-1} != 0 ]] && (( $+commands[jq] )) || return 0
+  local sock=${VICKS_NCSPOT_SOCKET:-} cand
+  if [[ -z $sock ]]; then
+    for cand in ${XDG_RUNTIME_DIR:+$XDG_RUNTIME_DIR/ncspot/ncspot.sock} /tmp/ncspot-$UID/ncspot.sock $HOME/.cache/ncspot/ncspot.sock; do
+      [[ -S $cand ]] && { sock=$cand; break; }
+    done
+  fi
+  [[ -S $sock ]] || return 0
+  # the socket sends one line of JSON as soon as you connect
+  local js="" fd
+  zmodload zsh/net/socket 2>/dev/null || return 0
+  zsocket "$sock" 2>/dev/null || return 0
+  fd=$REPLY; read -r -t 1 -u $fd js; exec {fd}>&-
+  [[ -n $js ]] || return 0
+
+  local US=$'\x1f' mode start paused title artists album uri dur
+  IFS=$US read -r mode start paused title artists album uri dur <<< "$(jq -r '
+    def clean: tostring | explode | map(if . < 32 or (. >= 127 and . < 160) then 32 else . end) | implode;
+    [ (.mode | if type == "object" then keys[0] else . end),
+      (.mode.Playing.secs_since_epoch? // 0), (.mode.Paused.secs? // 0),
+      ((.playable.title // "") | clean), (((.playable.artists // []) | join(", ")) | clean),
+      ((.playable.album // "") | clean), (.playable.uri // ""), ((.playable.duration // 0) / 1000 | floor)
+    ] | map(tostring) | join("\u001f")' <<< "$js" 2>/dev/null)"
+  [[ -n $title ]] || return 0
+
+  local icon col elapsed=0
+  case $mode in
+    Playing) icon="▶"; col=$C_OK;   elapsed=$(( EPOCHSECONDS - start )) ;;
+    Paused)  icon="‖"; col=$C_WARN; elapsed=$paused ;;
+    *)       icon="■"; col=$C_D ;;
+  esac
+  (( elapsed < 0 )) && elapsed=0; (( dur > 0 && elapsed > dur )) && elapsed=$dur
+  local clock; printf -v clock '%d:%02d/%d:%02d' $(( elapsed / 60 )) $(( elapsed % 60 )) $(( dur / 60 )) $(( dur % 60 ))
+
+  # remember the previous track, to tell playlists apart and to notice shuffling
+  local sf=$cache_dir/ncspot_track last="" prev=""
+  [[ -r $sf ]] && read -r last prev < "$sf"
+  if [[ $uri != $last ]]; then prev=$last; print -r -- "$uri $prev" > "$sf.tmp" && mv -f "$sf.tmp" "$sf"; fi
+
+  # every place the track appears: kind, name, size, position, previous uri, next title, next artists
+  local ndir=${XDG_CACHE_HOME:-$HOME/.cache}/ncspot
+  local -a hits
+  hits=("${(@f)$(jq -r --arg u "$uri" '
+    def clean: tostring | explode | map(if . < 32 or (. >= 127 and . < 160) then 32 else . end) | implode;
+    def rows($kind; $name; $tracks):
+      ($tracks // []) as $t | $t | to_entries[] | select(.value.uri == $u)
+      | [ $kind, ($name | clean), ($t | length), (.key + 1),
+          (if .key > 0 then $t[.key - 1].uri else "" end),
+          (($t[.key + 1].title // "") | clean), ((($t[.key + 1].artists // [])[0:2] | join(", ")) | clean)
+        ] | map(tostring) | join("\u001f");
+    if input_filename | endswith("playlists.db") then .[] | rows("Playlist"; .name; .tracks)
+    elif input_filename | endswith("albums.db") then .[] | rows("Album"; .title; .tracks)
+    else rows("Playlist"; "Liked Songs"; .) end' \
+    "$ndir/playlists.db" "$ndir/albums.db" "$ndir/tracks.db" 2>/dev/null)}")
+  [[ -z ${hits[1]:-} ]] && hits=()
+
+  local kind="" name="" size pos puri ntitle="" nartists="" sure=0 hit
+  for hit in $hits; do                       # the one where the previous track comes right before
+    IFS=$US read -r kind name size pos puri ntitle nartists <<< "$hit"
+    [[ -n $prev && $puri == $prev ]] && { sure=1; break; }
+  done
+  (( sure )) || { [[ -n ${hits[1]:-} ]] && IFS=$US read -r kind name size pos puri ntitle nartists <<< "$hits[1]"; }
+
+  section "NOW PLAYING" "ncspot · ${clock}"
+  print -r -- "  ${col}${icon} ${C_BOLD}${C_V}${title}${C_RESET}${C_D} · ${C_INFO}${artists}${C_RESET}"
+  if [[ -z $name ]]; then
+    kv "Next" "${C_D}unknown: this track is not in your saved playlists"
+    [[ -n $album ]] && kv "Album" "$album"
+    return
+  fi
+  # a "?" marks a guess: the last track change did not follow the playlist order
+  # (shuffle, a manual jump, or the first track seen)
+  local q=""; (( sure )) || q="${C_D} ?"
+  if [[ -n $ntitle ]]; then kv "Next" "${ntitle}${C_D} · ${C_INFO}${nartists}${q}"
+  else kv "Next" "${C_D}end of the ${kind:l}"; fi
+  kv "$kind" "${name}${C_D} · ${pos}/${size}${q}"
 }
 
 # The biggest consumers, two lists side by side: by CPU and by memory.
@@ -1051,6 +1137,8 @@ if (( ! dash )); then
   print; blk_who
   print; blk_resources
   print; blk_top
+  local mu_out; mu_out="$(blk_music)"
+  [[ -n $mu_out ]] && { print; print -r -- "$mu_out"; }
   print; blk_network
   local ts_out; ts_out="$(blk_tailscale)"
   [[ -n $ts_out ]] && { print; print -r -- "$ts_out"; }
@@ -1108,7 +1196,10 @@ render_dash() {
   s_art="$(blk_art)"; s_sys="$(blk_system)"; s_res="$(blk_resources)"; s_top="$(blk_top)"
   s_net="$(blk_network)"; s_ts="$(blk_tailscale)"
   (( nonet )) || s_route="$(blk_route)"
-  local -a secs=("$s_sys" "$s_res" "$s_top" "$s_net")
+  local s_mus; s_mus="$(blk_music)"
+  local -a secs=("$s_sys" "$s_res" "$s_top")
+  [[ -n $s_mus ]] && secs+=("$s_mus")
+  secs+=("$s_net")
   [[ -n $s_ts ]] && secs+=("$s_ts")
   [[ -n $s_route ]] && secs+=("$s_route")
 
