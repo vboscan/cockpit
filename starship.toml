@@ -1,0 +1,128 @@
+# Starship prompt — https://starship.rs
+# Two-line layout: context on the first line, day/time on the right, input on the second.
+# No Nerd Font needed: only plain Unicode and emoji are used.
+"$schema" = 'https://starship.rs/config-schema.json'
+
+add_newline = true
+command_timeout = 800
+
+format = """
+[╭─](240) $username$hostname$directory$git_branch$git_commit$git_state$git_status$python${custom.venv_inactive}$nodejs$rust$golang$docker_context$fill$cmd_duration$jobs$status$time
+[╰─](240)$character"""
+
+[fill]
+symbol = " "
+
+# ── who / where ────────────────────────────────────────────────────────────
+[username]
+show_always = false                 # only when root or over SSH
+style_user = "bold 220"
+style_root = "bold 196"
+format = "[$user]($style)"
+
+[hostname]
+ssh_only = true
+style = "bold 214"
+format = "[@$hostname]($style) "
+
+[directory]
+style = "bold 39"                   # bright blue
+read_only = " 🔒"
+truncation_length = 4
+truncate_to_repo = true             # inside a repo, show the path from the repo root
+truncation_symbol = "…/"
+repo_root_style = "bold 51"         # repo name stands out in cyan
+format = "[$path]($style)[$read_only]($read_only_style) "
+repo_root_format = "[$before_root_path]($before_repo_root_style)[$repo_root]($repo_root_style)[$path]($style)[$read_only]($read_only_style) "
+
+# ── git ────────────────────────────────────────────────────────────────────
+[git_branch]
+symbol = "git:"
+style = "bold 141"                  # purple
+format = "[$symbol](245)[$branch(:$remote_branch)]($style) "
+
+[git_commit]
+tag_disabled = false
+style = "141"
+format = "[\\($hash$tag\\)]($style) "
+
+[git_state]
+style = "bold 196"
+format = "[\\($state( $progress_current/$progress_total)\\)]($style) "
+
+[git_status]
+style = "214"
+format = "([$all_status$ahead_behind]($style) )"
+conflicted = "[✖${count} ](196)"
+staged     = "[+${count} ](82)"     # green: ready to commit
+modified   = "[!${count} ](214)"    # orange: changed, not staged
+deleted    = "[✘${count} ](196)"
+renamed    = "[»${count} ](82)"
+untracked  = "[?${count} ](75)"     # blue: new files
+stashed    = "[≡${count} ](245)"
+ahead      = "[⇡${count} ](51)"
+behind     = "[⇣${count} ](51)"
+diverged   = "[⇡${ahead_count}⇣${behind_count} ](196)"
+
+# ── python / virtual environments (venv, uv, virtualenv, conda) ────────────
+[python]
+symbol = "🐍 "
+style = "bold 220"
+# shows the active virtual env name in brackets, then the interpreter version
+format = '[${symbol}(\($virtualenv\) )${pyenv_prefix}(${version} )]($style)'
+detect_folders = [".venv", "venv"]
+
+# A .venv exists here (e.g. created by `uv venv` / `uv sync`) but is not activated.
+[custom.venv_inactive]
+description = "A .venv exists in this directory but is not activated"
+when = '[ -z "$VIRTUAL_ENV" ] && { [ -d .venv ] || [ -d venv ]; }'
+command = 'echo "venv not active"'
+style = "245"
+format = "[○ $output]($style) "
+shell = ["sh"]
+
+[nodejs]
+symbol = "node "
+style = "82"
+format = "[$symbol($version )]($style)"
+
+[rust]
+symbol = "rust "
+style = "208"
+format = "[$symbol($version )]($style)"
+
+[golang]
+symbol = "go "
+style = "51"
+format = "[$symbol($version )]($style)"
+
+[docker_context]
+symbol = "docker "
+style = "39"
+format = "[$symbol$context]($style) "
+
+# ── right-hand side ────────────────────────────────────────────────────────
+[cmd_duration]
+min_time = 2000
+style = "214"
+format = "[took $duration]($style) "
+
+[jobs]
+symbol = "jobs:"
+style = "75"
+
+[status]
+disabled = false
+style = "bold 196"
+format = "[✘ $status]($style) "
+
+[time]
+disabled = false
+time_format = "%a %d %b %H:%M:%S"   # local day and time
+style = "220"                       # Star Wars yellow
+format = "[$time]($style)"
+
+[character]
+success_symbol = " [❯](bold 82)"
+error_symbol   = " [❯](bold 196)"
+vimcmd_symbol  = " [❮](bold 82)"
