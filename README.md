@@ -82,9 +82,10 @@ The layout adapts to the window width.
 
 | Width | Layout |
 |---|---|
-| 173 columns or more | X-wing plus two or three columns of data, 20 to 24 rows |
-| 153 to 172 columns | X-wing plus two slightly narrower columns, about 24 rows |
-| 126 to 152 columns | Two columns of data, no art |
+| 226 columns or more | X-wing plus three columns of data |
+| 162 to 225 columns | X-wing plus two full-width columns of data, about 26 rows |
+| 142 to 161 columns | X-wing plus two slightly narrower columns |
+| 126 to 141 columns | Two columns of data, no art |
 | Narrower | One column |
 
 ### What changes inside the cockpit
@@ -113,6 +114,8 @@ Set the variables in `~/.zshrc` above the vicks block.
 ## The art
 
 The X-wing lives in [xwing.art](xwing.art). It is classic ASCII art signed "snd".
+The pinned banner uses [xwing-small.art](xwing-small.art), a reduced redraw of the same ship, so the data gets more room.
+`hello` prints the full-size one. Set `VICKS_DASH_ART_FILE` to pin a different file.
 Colour tokens switch colour until the next token.
 
 | Token | Colour |
@@ -153,7 +156,8 @@ If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws t
 |---|---|
 | `vicks.zsh` | Entry point sourced from `~/.zshrc`. Defines `hello` and `cockpit` |
 | `banner.zsh` | The welcome banner and the live dashboard |
-| `xwing.art` | The X-wing with colour tokens |
+| `xwing.art` | The full-size X-wing with colour tokens, used by `hello` |
+| `xwing-small.art` | The smaller X-wing used by the pinned banner |
 | `starship.toml` | Prompt configuration |
 | `prompt-fallback.zsh` | Prompt without Starship |
 | `tmux.conf` | tmux settings used only by the cockpit |

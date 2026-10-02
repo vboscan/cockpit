@@ -15,6 +15,7 @@
 #         VICKS_DASH_NET_TTL=120     the same, for the live dashboard
 #         VICKS_DASH_INTERVAL=5      seconds between dashboard redraws
 #         VICKS_DASH_ART=1           0 = never draw the art in the dashboard
+#         VICKS_DASH_ART_FILE=path   art for the dashboard (default: xwing-small.art)
 #         VICKS_UPDATE_TTL=21600     seconds between macOS / Homebrew update checks
 #         VICKS_TRACE_TARGET=8.8.8.8
 
@@ -63,6 +64,11 @@ local async=$dash     # dashboard never blocks on a lookup
 
 local here=${0:A:h}
 local art=${VICKS_ART:-$here/xwing.art}
+if (( dash )); then
+  # the pinned dashboard uses the smaller X-wing so the data gets more room
+  art=${VICKS_DASH_ART_FILE:-$here/xwing-small.art}
+  [[ -r $art ]] || art=${VICKS_ART:-$here/xwing.art}
+fi
 local ttl=${VICKS_CACHE_TTL:-600}
 (( dash )) && ttl=${VICKS_DASH_NET_TTL:-120}
 local upd_ttl=${VICKS_UPDATE_TTL:-21600}
@@ -250,7 +256,8 @@ blk_art() {
     done < "$art"
   fi
   if (( compact )); then
-    print -r -- "${C_Y}${C_BOLD}May the Force be with you, ${USER}.${C_RESET}"
+    # kept short so the caption is never wider than the art above it
+    print -r -- "${C_Y}${C_BOLD}May the Force be with you.${C_RESET}"
   else
     print
     print -r -- "  ${C_Y}${C_BOLD}May the Force be with you, ${USER}.${C_RESET}  ${C_D}Red Five standing by on $(hostname -s)${C_RESET}"
