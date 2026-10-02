@@ -311,9 +311,43 @@ blk_resources() {
   section "RESOURCES"
   local load cpu_pct mem_used_pct
   load="$(uptime | sed -E 's/.*load averages?: //')"
-  # instantaneous CPU: sum of %cpu across processes / cores
-  cpu_pct=$(ps -A -o %cpu= | awk -v n="${cpus:-1}" '{s+=$1} END {printf "%d", s/n}')
+  # One ps call: total CPU, plus the three biggest consumers of CPU and of memory.
+  # Processes are grouped by program name, so an app's helpers count as one entry.
+  # CPU is shown as a share of the whole machine, the same scale as the bar.
+  local psout nmax=24 sep="${C_D} · ${C_V}"
+  (( compact )) && nmax=12
+  if (( is_mac )); then psout="$(ps -A -c -o pcpu=,rss=,comm= 2>/dev/null)"
+  else psout="$(ps -eo pcpu=,rss=,comm= 2>/dev/null)"; fi
+  local -a tops
+  tops=("${(@f)$(print -r -- "$psout" | awk -v n="${cpus:-1}" -v nmax=$nmax -v k=3 '
+    function short(s) { return (length(s) > nmax) ? substr(s, 1, nmax - 1) "~" : s }
+    {
+      c = $1; r = $2; $1 = ""; $2 = ""; sub(/^ +/, "")
+      # fold helpers into their app: "Claude Helper (Renderer)" -> "Claude"
+      sub(/ Helper.*$/, ""); sub(/^com\.apple\./, "")
+      if ($0 ~ /^WebKit\./) $0 = "Safari/WebKit pages"
+      total += c; cpu[$0] += c; mem[$0] += r
+    }
+    END {
+      printf "%d\n", total / n
+      for (i = 1; i <= k; i++) {
+        best = ""; for (p in cpu) if (best == "" || cpu[p] > cpu[best]) best = p
+        if (best == "") break
+        out = out (i > 1 ? "|" : "") short(best) " " sprintf("%.0f%%", cpu[best] / n); delete cpu[best]
+      }
+      print out; out = ""
+      for (i = 1; i <= k; i++) {
+        best = ""; for (p in mem) if (best == "" || mem[p] > mem[best]) best = p
+        if (best == "") break
+        g = mem[best] / 1048576
+        out = out (i > 1 ? "|" : "") short(best) " " (g >= 1 ? sprintf("%.1fG", g) : sprintf("%.0fM", mem[best] / 1024)); delete mem[best]
+      }
+      print out
+    }')}")
+  cpu_pct=${tops[1]:-0}
+  local top_cpu=${${tops[2]:-}//\~/…} top_mem=${${tops[3]:-}//\~/…}
   kv "CPU" "$(bar $cpu_pct)  ${C_D}load $load"
+  [[ -n $top_cpu ]] && kv "  ↳ top" "${top_cpu//\|/$sep}"
   if (( is_mac )); then
     local pg active=0 wired=0 compressed=0
     pg=$(sysctl -n hw.pagesize)
@@ -330,6 +364,7 @@ blk_resources() {
     eval "$(free -m | awk '/Mem:/{print "mt="$2"; mu="$3}')"
     kv "Memory" "$(bar $(( mu * 100 / mt )))  ${C_D}$(( mu / 1024 ))/$(( mt / 1024 )) GB"
   fi
+  [[ -n $top_mem ]] && kv "  ↳ top" "${top_mem//\|/$sep}"
   local dpct dused dtot davail
   df -h / 2>/dev/null | awk 'NR==2 {print $5, $3, $2, $4}' | read -r dpct dused dtot davail
   if (( compact )); then kv "Disk /" "$(bar ${dpct%\%})  ${C_D}${davail} free of ${dtot}"

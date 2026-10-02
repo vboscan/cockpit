@@ -29,13 +29,16 @@ Remove the block again with `./install.sh --uninstall`.
 | X-wing | White and grey hull, red squadron stripes, orange engines, blue canopy |
 | System | Host, OS version and build, pending macOS updates, kernel, hardware, outdated Homebrew packages, uptime |
 | Who is here | Every logged-in user with session count, remote logins, your last login |
-| Resources | CPU, memory and disk bars, load averages, battery, process count |
+| Resources | CPU, memory and disk bars, the top three consumers of CPU and of memory, load averages, battery, process count |
 | Network | Interface and Wi-Fi name, private IP, gateway, other IPs, DNS, public IP, ISP, NAT |
 | Tailscale | Connection state, tailnet, this device, exit node, every peer with online state |
 | Route to internet | Each traceroute hop to `8.8.8.8` with address kind, latency and network owner |
 
 The public IP comes from a lookup at `ipinfo.io`, so it is correct behind NAT.
 Hop owners come from the same service. Hops are classed as private, carrier-grade NAT or public.
+
+The top consumers are grouped by app, so an app's helper processes count as one entry.
+Their CPU figures are a share of the whole machine, on the same scale as the CPU bar.
 
 ### How fresh the data is
 
