@@ -28,6 +28,10 @@
 #         VICKS_SPEEDTEST_SECONDS=8  time cap for each direction of the internet test
 #         VICKS_SPEEDTEST_MIN_AGE=300  reuse a result younger than this instead of retesting
 #         VICKS_IPERF_HOST=user@host   Tailscale peer for the iperf3 test (none = no test)
+#         VICKS_TIPS=0               hide the rotating tips
+#         VICKS_TIPS_SECONDS=30      how long each page of tips stays up
+#         VICKS_TIPS_COUNT=5         tips per page
+#         VICKS_TIPS_FILE=path       your own tips file ("key | description" lines)
 #       These can also live in ~/.config/vicks/config as plain VAR=value lines.
 
 emulate -L zsh
@@ -771,6 +775,41 @@ fi
 # a terminal window has just opened: start the once-per-window speed tests
 (( new_window && ! once )) && speedtests_start 0
 
+# Rotating tips: five lines at a time from a plain text file ("key | description").
+# The page changes every VICKS_TIPS_SECONDS, so the pinned banner cycles through them.
+#   blk_tips <width>   -> a block no wider than <width>
+blk_tips() {
+  local w=${1:-46} f=${VICKS_TIPS_FILE:-$here/cmux-tips.txt}
+  [[ ${VICKS_TIPS:-1} != 0 && -r $f ]] || return 0
+  # the default list is about cmux: show it only on a machine that has cmux, not over SSH
+  if [[ -z ${VICKS_TIPS_FILE:-} ]]; then
+    (( is_remote )) && return 0
+    [[ -d /Applications/cmux.app ]] || (( $+commands[cmux] )) || return 0
+  fi
+  local -a tips=("${(@f)$(grep -vE '^[[:space:]]*(#|$)' "$f")}")
+  local n=$#tips per=${VICKS_TIPS_COUNT:-5} secs=${VICKS_TIPS_SECONDS:-30}
+  (( n > 0 && per > 0 && secs > 0 )) || return 0
+  local pages=$(( (n + per - 1) / per ))
+  local page=$(( (EPOCHSECONDS / secs) % pages ))
+  local title="${VICKS_TIPS_TITLE:-CMUX TIPS}" count="$(( page + 1 ))/${pages}"
+  local rule=$(( w - ${#title} - ${#count} - 2 )); (( rule < 0 )) && rule=0
+  print -r -- "${C_Y}${C_BOLD}${title}${C_RESET} ${C_D}${count} $(rep ─ $rule)${C_RESET}"
+  local -a keys descs
+  local i t k d keyw=0
+  for (( i = 0; i < per && i < n; i++ )); do
+    t=${tips[$(( (page * per + i) % n + 1 ))]}
+    k=${t%%|*}; d=${t#*|}
+    k=${${k##[[:space:]]#}%%[[:space:]]#}; d=${${d##[[:space:]]#}%%[[:space:]]#}
+    keys+=("$k"); descs+=("$d")
+    (( ${#k} > keyw )) && keyw=${#k}
+  done
+  local room=$(( w - keyw - 2 ))
+  for (( i = 1; i <= $#keys; i++ )); do
+    d=$descs[i]; (( room > 3 && ${#d} > room )) && d="${d[1,room-1]}…"
+    print -r -- "${C_INFO}${(r:keyw:: :)keys[i]}${C_RESET}  ${C_V}${d}${C_RESET}"
+  done
+}
+
 # ---------------------------------------------------- one-shot banner ---
 if (( ! dash )); then
   net_basics; proc_snapshot
@@ -784,6 +823,8 @@ if (( ! dash )); then
   local ts_out; ts_out="$(blk_tailscale)"
   [[ -n $ts_out ]] && { print; print -r -- "$ts_out"; }
   (( nonet )) || { print; blk_route; }
+  local tips_out; tips_out="$(blk_tips 46)"
+  [[ -n $tips_out ]] && { print; print -r -- "$tips_out"; }
   print
   return 0 2>/dev/null || exit 0
 fi
@@ -841,12 +882,17 @@ render_dash() {
 
   local artw=0 arth=0 l
   for l in "${(@f)s_art}"; do vlen "$l"; (( REPLY > artw )) && artw=$REPLY; (( arth++ )); done
+  # the tips fit in the empty space under the art, so they cost no extra rows there
+  local s_art_tips="$s_art" s_tips
+  s_tips="$(blk_tips $artw)"
+  [[ -n $s_tips ]] && s_art_tips+=$'\n\n'"$s_tips"
 
   local -a C Wd        # column texts and widths
   local want_art=${VICKS_DASH_ART:-1}
   if (( side || cols < 2 * colw + gap )); then
     # one column: art on top when it fits, then every section
     (( want_art && cols >= artw && side )) && secs=("$s_art" "${secs[@]}")
+    s_tips="$(blk_tips 46)"; [[ -n $s_tips ]] && secs+=("$s_tips")
     flow 1 "${secs[@]}"; C=("${reply[@]}"); Wd=($cols)
   elif (( want_art && cols >= artw + 2 * (52 + gap) )); then
     # art on the left, sections balanced over the remaining columns;
@@ -854,9 +900,10 @@ render_dash() {
     local n=$(( (cols - artw) / (colw + gap) )); (( n > 3 )) && n=3
     if (( n < 2 )); then n=2; colw=$(( (cols - artw - 2 * gap) / 2 )); fi
     flow $n "${secs[@]}"
-    C=("$s_art" "${reply[@]}"); Wd=($artw); repeat $#reply Wd+=($colw)
+    C=("$s_art_tips" "${reply[@]}"); Wd=($artw); repeat $#reply Wd+=($colw)
   else
     local n=$(( (cols + gap) / (colw + gap) )); (( n > 3 )) && n=3
+    s_tips="$(blk_tips 46)"; [[ -n $s_tips ]] && secs+=("$s_tips")
     flow $n "${secs[@]}"; C=("${reply[@]}"); repeat $#reply Wd+=($colw)
   fi
 

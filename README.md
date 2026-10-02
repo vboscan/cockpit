@@ -47,6 +47,15 @@ The top apps are grouped by app, so an app's helper processes count as one entry
 Their CPU figures are a share of the whole machine, on the same scale as the CPU bar.
 WebKit web pages are the pages open in Safari and in other apps that embed WebKit.
 
+### Rotating tips
+
+Under the X-wing, the banner shows five cmux shortcuts and commands at a time and moves to the next five every 30 seconds.
+The list has 50 tips in ten themed pages: getting around, creating, panes, attention, finding, browser, housekeeping, settings, cmux commands and this banner's own commands.
+
+- **The list is a text file:** [cmux-tips.txt](cmux-tips.txt), one `shortcut | description` per line. Edit it freely; changes show on the next redraw.
+- **Shortcuts are cmux's defaults.** If you rebind one in `~/.config/cmux/cmux.json`, update its line in the file.
+- **Where it appears:** on machines that have cmux, and not over SSH. In windows too narrow for the X-wing it becomes an ordinary section.
+
 ### Speed tests
 
 Two speed tests run once when a new terminal window opens, in the background.
@@ -166,6 +175,10 @@ On Linux the banner uses `ip`, `free` and `/proc` in place of the macOS tools, a
 | `VICKS_SPEEDTEST_SECONDS=8` | Time cap for each direction of the internet test |
 | `VICKS_SPEEDTEST_MIN_AGE=300` | Reuse a result younger than this many seconds |
 | `VICKS_IPERF_HOST=user@host` | Tailscale peer for the `iperf3` test. Unset means no Tailscale test |
+| `VICKS_TIPS=0` | Hide the rotating tips |
+| `VICKS_TIPS_SECONDS=30` | How long each page of tips stays up |
+| `VICKS_TIPS_COUNT=5` | Tips per page |
+| `VICKS_TIPS_FILE=/path/to/file` | Use your own tips file |
 | `VICKS_ART=/path/to/file` | Use different art |
 | `VICKS_REMOTE_ART=tie` | Ship shown when reached over SSH: `tie`, `deathstar`, `xwing` or a file path |
 
@@ -228,6 +241,7 @@ If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws t
 | `xwing.art` | The full-size X-wing with colour tokens, used by `hello` |
 | `xwing-small.art` | The smaller X-wing used by the pinned banner |
 | `tie.art`, `deathstar.art` | The ships shown on machines reached over SSH |
+| `cmux-tips.txt` | The rotating tips: cmux shortcuts and commands |
 | `starship.toml` | Prompt configuration |
 | `prompt-fallback.zsh` | Prompt without Starship |
 | `tmux.conf` | tmux settings used only by the cockpit |

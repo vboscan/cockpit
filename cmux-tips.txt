@@ -1,0 +1,74 @@
+# cmux-tips.txt — tips shown in the banner, five at a time, rotating.
+# One tip per line:  shortcut or command | what it does
+# Keep both sides short: the list sits under the X-wing, 34 characters wide.
+# Shortcuts are cmux's defaults (see "shortcuts" in ~/.config/cmux/cmux.json).
+
+# ── getting around ──
+cmd+shift+p        | Command palette
+cmd+p              | Go to workspace
+cmd+1..9           | Workspace by number
+ctrl+1..9          | Tab by number
+cmd+shift+] [      | Next / previous tab
+
+# ── creating ──
+cmd+n              | New workspace
+cmd+t              | New tab in this pane
+cmd+d              | Split right
+cmd+shift+d        | Split down
+cmd+shift+n        | New window
+
+# ── panes ──
+cmd+opt+←↑↓→       | Move between panes
+cmd+shift+enter    | Zoom or unzoom pane
+cmd+ctrl+=         | Equalize splits
+cmd+shift+h        | Flash current pane
+cmd+b              | Toggle sidebar
+
+# ── attention ──
+cmd+shift+u        | Jump to unread
+cmd+i              | Notifications
+cmd+shift+r        | Rename workspace
+cmd+r              | Rename tab
+cmd+opt+e          | Workspace notes
+
+# ── finding ──
+cmd+f              | Find in terminal
+cmd+g              | Find next
+cmd+shift+f        | Find in folder
+cmd+opt+b          | File explorer
+cmd+o              | Open folder
+
+# ── browser ──
+cmd+shift+l        | Open browser
+cmd+opt+d          | Browser split right
+cmd+l              | Browser address bar
+cmd+opt+i          | Browser dev tools
+cmd+shift+t        | Reopen closed browser
+
+# ── housekeeping ──
+cmd+k              | Clear, banner stays
+cmd+w              | Close tab
+cmd+shift+w        | Close workspace
+cmd+shift+o        | Reopen last session
+cmd+shift+m        | Terminal copy mode
+
+# ── settings ──
+cmd+,              | Settings
+cmd+shift+,        | Reload config
+cmd+ctrl+f         | Full screen
+cmux shortcuts     | List all shortcuts
+cmux themes list   | Browse themes
+
+# ── cmux commands ──
+cmux .             | Folder as workspace
+cmux open FILE     | Open file or URL
+cmux diff          | View git changes
+cmux tree          | Show pane layout
+cmux notify        | Send a notification
+
+# ── this banner ──
+cockpit refresh    | Refresh banner data
+cockpit speedtest  | Rerun speed tests
+hello              | Full banner, once
+hello --fresh      | Full banner, fresh
+vicks-deploy HOST  | Install on a remote
