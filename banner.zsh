@@ -1,21 +1,32 @@
 #!/usr/bin/env zsh
 # banner.zsh — X-wing welcome banner with machine metadata and a route to the internet.
 #
-# Usage:  banner.zsh            (network parts are cached for $VICKS_CACHE_TTL seconds)
-#         banner.zsh --fresh    (ignore the cache)
-#         banner.zsh --no-net   (skip public IP lookup and traceroute)
+# Usage:  banner.zsh            one-shot banner (what a new terminal shows)
+#         banner.zsh --fresh    ignore every cache and look everything up again
+#         banner.zsh --no-net   skip public IP lookup and traceroute
+#         banner.zsh --dash     live dashboard that redraws in place (used by `cockpit`)
+#                               keys: r = refresh everything now, q = quit
+#           --side              dashboard is in a narrow side pane (single column)
+#           --once              print one dashboard frame and exit
+#           --cols N            assume a terminal N columns wide
 #
-# Env:    VICKS_ART=/path/to/file   alternative art file (tokens: {W} {G} {D} {R} {O} {C} {B} {Y} {X})
-#         VICKS_CACHE_TTL=600       seconds to cache public IP + traceroute
+# Env:    VICKS_ART=/path/to/file    alternative art (tokens: {W} {G} {D} {R} {O} {C} {B} {Y} {X})
+#         VICKS_CACHE_TTL=600        seconds to cache public IP + traceroute for the banner
+#         VICKS_DASH_NET_TTL=120     the same, for the live dashboard
+#         VICKS_DASH_INTERVAL=5      seconds between dashboard redraws
+#         VICKS_DASH_ART=1           0 = never draw the art in the dashboard
+#         VICKS_UPDATE_TTL=21600     seconds between macOS / Homebrew update checks
 #         VICKS_TRACE_TARGET=8.8.8.8
 
 emulate -L zsh
-setopt no_nomatch pipe_fail
+setopt extendedglob no_nomatch pipe_fail
+zmodload zsh/datetime 2>/dev/null
+zmodload -F zsh/stat b:zstat 2>/dev/null   # only zstat, keep the system `stat`
 
 # ---------------------------------------------------------------- colours ---
-# 256-colour codes work in Terminal.app, iTerm2, Warp, VS Code, Ghostty, etc.
+# 256-colour codes work in Terminal.app, iTerm2, Warp, VS Code, Ghostty, tmux.
 # Star Wars yellow is #FFE81F; use truecolor when the terminal advertises it.
-local C_RESET=$'\e[0m' C_BOLD=$'\e[1m' C_DIM=$'\e[2m'
+local C_RESET=$'\e[0m' C_BOLD=$'\e[1m'
 local C_W=$'\e[38;5;255m'   # hull white
 local C_G=$'\e[38;5;250m'   # hull grey
 local C_D=$'\e[38;5;244m'   # dark grey
@@ -34,17 +45,26 @@ local C_V=$'\e[38;5;252m'   # values
 local C_OK=$'\e[38;5;82m' C_WARN=$'\e[38;5;214m' C_BAD=$'\e[38;5;196m' C_INFO=$'\e[38;5;75m'
 
 # ---------------------------------------------------------------- options ---
-local fresh=0 nonet=0
-for a in "$@"; do
-  case $a in
+local fresh=0 nonet=0 dash=0 once=0 side=0 force_cols=0
+while (( $# )); do
+  case $1 in
     --fresh)  fresh=1 ;;
     --no-net) nonet=1 ;;
+    --dash)   dash=1 ;;
+    --once)   once=1 ;;
+    --side)   side=1 ;;
+    --cols)   force_cols=$2; shift ;;
   esac
+  shift
 done
+local compact=$dash   # dashboard uses shorter lines
+local async=$dash     # dashboard never blocks on a lookup
 
 local here=${0:A:h}
 local art=${VICKS_ART:-$here/xwing.art}
 local ttl=${VICKS_CACHE_TTL:-600}
+(( dash )) && ttl=${VICKS_DASH_NET_TTL:-120}
+local upd_ttl=${VICKS_UPDATE_TTL:-21600}
 local target=${VICKS_TRACE_TARGET:-8.8.8.8}
 local cache_dir=${XDG_CACHE_HOME:-$HOME/.cache}/vicks
 mkdir -p "$cache_dir" 2>/dev/null
@@ -53,14 +73,14 @@ local is_mac=0
 [[ $OSTYPE == darwin* ]] && is_mac=1
 
 # ---------------------------------------------------------------- helpers ---
-# kv "label" "value"      -> aligned key/value line
-kv() { printf "  %s%-14s%s %s%s%s\n" "$C_K" "$1" "$C_RESET" "$C_V" "$2" "$C_RESET"; }
+# kv "label" "value"  -> aligned key/value line
+kv() { printf "  %s%-12s%s %s%s%s\n" "$C_K" "$1" "$C_RESET" "$C_V" "$2" "$C_RESET"; }
 # rep <char> <n>  -> char repeated n times (byte-safe in any locale)
 rep() { local s=""; repeat ${2:-0} s+=$1; print -rn -- "$s"; }
 # section "title" ["dim suffix"]
 section() {
   local n=$(( 46 - ${#1} - ${#2} )); (( n < 3 )) && n=3
-  printf "\n%s%s%s%s %s%s%s %s%s\n" "$C_Y" "$C_BOLD" "$1" "$C_RESET" "$C_D" "$2" "$C_RESET" "$C_D$(rep ─ $n)" "$C_RESET"
+  printf "%s%s%s%s %s%s%s%s%s\n" "$C_Y" "$C_BOLD" "$1" "$C_RESET" "$C_D" "${2:+$2 }" "$(rep ─ $n)" "$C_RESET"
 }
 # bar <pct> [width]  -> coloured usage bar
 bar() {
@@ -70,18 +90,40 @@ bar() {
   (( pct >= 90 )) && col=$C_BAD
   printf "%s%s%s%s%s %3d%%" "$col" "$(rep █ $filled)" "$C_D" "$(rep ░ $((width - filled)))" "$C_RESET" "$pct"
 }
-# cached <name> <cmd...>  -> run cmd, cache stdout for $ttl seconds
-cached() {
-  local name=$1; shift
-  local f=$cache_dir/$name
-  if (( ! fresh )) && [[ -f $f ]]; then
-    local age=$(( EPOCHSECONDS - $(zstat +mtime "$f" 2>/dev/null || stat -f %m "$f") ))
-    if (( age < ttl )); then cat "$f"; return; fi
+# mtime <file>  -> REPLY = modification time, 0 if missing
+mtime() { local -a st; if zstat -A st +mtime -- "$1" 2>/dev/null; then REPLY=$st[1]; else REPLY=0; fi; }
+# ago <seconds>  -> REPLY = "5m ago"
+ago() {
+  local s=$1
+  if   (( s < 90 ));     then REPLY="just now"
+  elif (( s < 5400 ));   then REPLY="$(( s / 60 ))m ago"
+  elif (( s < 172800 )); then REPLY="$(( s / 3600 ))h ago"
+  else                        REPLY="$(( s / 86400 ))d ago"
   fi
-  "$@" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f" && cat "$f"
 }
-zmodload zsh/datetime 2>/dev/null
-zmodload -F zsh/stat b:zstat 2>/dev/null   # only zstat, keep the system `stat`
+# cached [-a] <name> <ttl> <cmd...>  -> stdout of cmd, cached for ttl seconds.
+#   -a   slow command (update checks): never wait for it. Print the last known
+#        value and refresh in the background when stale or when --fresh is given.
+#   The dashboard treats every lookup that way, except right after pressing r.
+cached() {
+  local allow_async=0
+  [[ $1 == -a ]] && { allow_async=1; shift; }
+  local name=$1 cttl=$2; shift 2
+  local f=$cache_dir/$name
+  mtime "$f"
+  if (( fresh || EPOCHSECONDS - REPLY >= cttl )); then
+    if (( allow_async || (async && ! fresh) )); then
+      mtime "$f.lock"
+      if (( EPOCHSECONDS - REPLY > 120 )); then
+        : > "$f.lock"
+        ( "$@" > "$f.tmp" 2>/dev/null; mv -f "$f.tmp" "$f"; rm -f "$f.lock" ) >/dev/null 2>&1 </dev/null &!
+      fi
+    else
+      "$@" > "$f.tmp" 2>/dev/null; mv -f "$f.tmp" "$f"
+    fi
+  fi
+  [[ -f $f ]] && cat "$f"
+}
 # classify an IPv4 address
 ipclass() {
   case $1 in
@@ -92,24 +134,24 @@ ipclass() {
     *) echo public ;;
   esac
 }
+# vlen <string>  -> REPLY = visible length (colour codes not counted)
+vlen() { local s=${1//$'\e'\[[0-9;]#m/}; REPLY=${#s}; }
+# vtrunc <string> <max>  -> REPLY = string cut to max visible characters
+vtrunc() {
+  local s=$1 max=$2 out="" n=0 esc
+  while [[ -n $s ]]; do
+    if [[ $s == $'\e'\[[0-9\;]#m* ]]; then
+      esc=${(M)s#$'\e'\[[0-9;]#m}; out+=$esc; s=${s#$esc}
+    else
+      (( n >= max - 1 )) && { out+="…"; break; }
+      out+=$s[1]; s=$s[2,-1]; (( n++ ))
+    fi
+  done
+  REPLY=$out$C_RESET
+}
 
-# ---------------------------------------------------------------- the art ---
-print
-if [[ -r $art ]]; then
-  local line
-  while IFS= read -r line; do
-    line=${line//\{W\}/$C_W}; line=${line//\{G\}/$C_G}; line=${line//\{D\}/$C_D}
-    line=${line//\{R\}/$C_R}; line=${line//\{O\}/$C_O}; line=${line//\{C\}/$C_C}
-    line=${line//\{B\}/$C_B}; line=${line//\{Y\}/$C_Y}; line=${line//\{X\}/$C_RESET}
-    print -r -- "    $line$C_RESET"
-  done < "$art"
-fi
-print
-print -r -- "  ${C_Y}${C_BOLD}May the Force be with you, ${USER}.${C_RESET}  ${C_D}Red Five standing by on $(hostname -s)${C_RESET}"
-
-# ----------------------------------------------------------------- system ---
-section "SYSTEM"
-local os kernel model chip cpus mem_total
+# ------------------------------------------------------ static facts ---
+local os kernel model chip cpus mem_total computer_name=""
 kernel="$(uname -s) $(uname -r) ($(uname -m))"
 if (( is_mac )); then
   os="macOS $(sw_vers -productVersion) build $(sw_vers -buildVersion)"
@@ -117,6 +159,7 @@ if (( is_mac )); then
   chip="$(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
   cpus=$(sysctl -n hw.ncpu 2>/dev/null)
   mem_total=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
+  computer_name="$(scutil --get ComputerName 2>/dev/null)"
 else
   os="$( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}")"
   model="$(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null)"
@@ -124,150 +167,503 @@ else
   cpus=$(nproc 2>/dev/null)
   mem_total=$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 / 1024 ))
 fi
-kv "Host"     "$(hostname -s) ${C_D}($(hostname))"
-(( is_mac )) && kv "Name" "$(scutil --get ComputerName 2>/dev/null)"
-kv "OS"       "$os"
-kv "Kernel"   "$kernel"
-kv "Hardware" "${model:-?} · ${chip:-?} · ${cpus} cores · ${mem_total} GB RAM"
-kv "Shell"    "zsh $ZSH_VERSION · ${TERM_PROGRAM:-${TERM:-unknown terminal}}"
-kv "Date"     "$(date '+%A %d %B %Y, %H:%M %Z')"
-kv "Uptime"   "$(uptime | sed -E 's/.* up +//; s/, +[0-9]+ users?.*//; s/  +/ /g')"
 
-# ------------------------------------------------------------------ users ---
-section "WHO IS HERE"
-local me=$USER
-local who_out; who_out="$(who 2>/dev/null)"
-local -A sessions
-local u
-while read -r u _; do [[ -n $u ]] && (( sessions[$u]++ )); done <<< "$who_out"
-for u in ${(ko)sessions}; do
-  local tag=""; [[ $u == $me ]] && tag="${C_D}(you)"
-  [[ $u != $me ]] && tag="${C_WARN}← someone else"
-  kv "$u" "${sessions[$u]} session(s) $tag"
-done
-local remote; remote="$(print -r -- "$who_out" | awk '$NF ~ /^\(/ {print $1, $NF}' | sort -u)"
-[[ -n $remote ]] && kv "Remote" "$(print -r -- "$remote" | tr '\n' ' ')"
-[[ -n ${SSH_CONNECTION:-} ]] && kv "You via SSH" "${SSH_CONNECTION%% *} → ${SSH_CONNECTION##* }"
-kv "Last login" "$(last -1 "$me" 2>/dev/null | awk 'NR==1{$1=""; print}' | sed 's/^ *//')"
+# ------------------------------------------------------ update checks ---
+# Both are slow (seconds), so they run in the background and are cached for hours.
+check_macos_updates() {
+  local out; out="$(softwareupdate -l 2>&1)"
+  if [[ $out == *Title:* ]]; then
+    print -r -- "$out" | sed -nE 's/^[[:space:]]*Title: (.*), Version: ([^,]*),.*/\1|\2/p'
+  elif [[ $out == *"No new software"* ]]; then
+    print OK
+  else
+    print ERR
+  fi
+}
+check_brew() {
+  local v; v="$(brew --version 2>/dev/null | head -1)"
+  [[ -z $v ]] && { print ERR; return; }
+  print -r -- "V|${v#Homebrew }"
+  brew outdated --quiet 2>/dev/null
+}
+# upd_macos -> line 1: status; line 2 (optional): names of the other pending updates
+upd_macos() {
+  local res; res="$(cached -a macos_updates $upd_ttl check_macos_updates)"
+  if [[ -z $res ]]; then print -r -- "${C_D}checking…"; return; fi
+  mtime "$cache_dir/macos_updates"; ago $(( EPOCHSECONDS - REPLY )); local when=$REPLY
+  case $res in
+    OK)  print -r -- "${C_OK}✓ macOS and Apple software up to date ${C_D}(checked $when)" ;;
+    ERR) print -r -- "${C_D}could not check (offline?)" ;;
+    *)
+      local -a os_upd other; local e t v
+      for e in "${(@f)res}"; do
+        t=${e%%|*}; v=${e##*|}
+        [[ $t == *"$v"* ]] || t="$t $v"
+        if [[ $t == macOS* ]]; then os_upd+=("$t"); else other+=("$t"); fi
+      done
+      local s
+      if (( compact )); then
+        # short form for the dashboard
+        if (( $#os_upd )); then s="${C_WARN}⬆ ${(j:, :)os_upd}"; else s="${C_OK}✓ macOS current"; fi
+        (( $#other )) && s+="${C_D} · +${#other} Apple"
+        print -r -- "$s"
+        return
+      fi
+      if (( $#os_upd )); then s="${C_WARN}⬆ ${(j:, :)os_upd} available"
+      else s="${C_OK}✓ macOS up to date"; fi
+      (( $#other )) && s+="${C_D} · ${C_WARN}${#other} other Apple update(s)"
+      print -r -- "$s ${C_D}(checked $when)"
+      if (( $#other > 3 )); then print -r -- "${C_D}${(j:, :)other[1,3]} and $(( $#other - 3 )) more"
+      elif (( $#other )); then print -r -- "${C_D}${(j:, :)other}"; fi
+      ;;
+  esac
+}
+upd_brew() {
+  local res; res="$(cached -a brew_outdated $upd_ttl check_brew)"
+  if [[ -z $res ]]; then print -r -- "${C_D}checking…"; return; fi
+  [[ $res == ERR ]] && { print -r -- "${C_D}could not check"; return; }
+  mtime "$cache_dir/brew_outdated"; ago $(( EPOCHSECONDS - REPLY )); local when=$REPLY
+  local -a lines=("${(@f)res}")
+  local ver=${lines[1]#V|}; shift lines
+  if (( $#lines == 0 )); then
+    print -r -- "${ver} ${C_OK}✓ all packages up to date ${C_D}(checked $when)"
+  else
+    local names="${(j:, :)lines[1,4]}"; (( $#lines > 4 )) && names+=" and $(( $#lines - 4 )) more"
+    print -r -- "${ver} ${C_WARN}⬆ ${#lines} outdated${C_D}: ${names} · run ${C_V}brew upgrade"
+  fi
+}
 
-# -------------------------------------------------------------- resources ---
-section "RESOURCES"
-local load cpu_pct mem_used_pct disk_line
-load="$(uptime | sed -E 's/.*load averages?: //')"
-# instantaneous CPU: sum of %cpu across processes / cores
-cpu_pct=$(ps -A -o %cpu= | awk -v n="${cpus:-1}" '{s+=$1} END {printf "%d", s/n}')
-if (( is_mac )); then
-  local pg free_pg active wired compressed
-  pg=$(sysctl -n hw.pagesize)
-  eval "$(vm_stat | awk -F'[: .]+' '
-    /Pages active/      {print "active="$3}
-    /Pages wired/       {print "wired="$4}
-    /occupied by compressor/ {print "compressed="$5}')"
-  local used_gb; used_gb=$(( (active + wired + compressed) * pg / 1024 / 1024 / 1024 ))
-  mem_used_pct=$(( used_gb * 100 / mem_total ))
-  kv "CPU"    "$(bar $cpu_pct)  ${C_D}load $load"
-  kv "Memory" "$(bar $mem_used_pct)  ${C_D}${used_gb}/${mem_total} GB (active+wired+compressed)"
-else
-  eval "$(free -m | awk '/Mem:/{print "mt="$2"; mu="$3}')"
-  mem_used_pct=$(( mu * 100 / mt ))
-  kv "CPU"    "$(bar $cpu_pct)  ${C_D}load $load"
-  kv "Memory" "$(bar $mem_used_pct)  ${C_D}$(( mu/1024 ))/$(( mt/1024 )) GB"
-fi
-df -h / 2>/dev/null | awk 'NR==2 {print $5, $3, $2, $4}' | read -r dpct dused dtot davail
-kv "Disk /" "$(bar ${dpct%\%})  ${C_D}${dused} used of ${dtot}, ${davail} free"
-if (( is_mac )) && command -v pmset >/dev/null; then
-  local batt; batt="$(pmset -g batt 2>/dev/null | awk -F'\t' '/InternalBattery/{print $2}' | sed 's/ present.*//')"
-  [[ -n $batt ]] && kv "Battery" "$batt"
-fi
-kv "Processes" "$(ps -A | wc -l | tr -d ' ') running · $(ps -A -o user= | sort -u | wc -l | tr -d ' ') distinct users"
+# ------------------------------------------------------------- blocks ---
+# Every block prints plain lines; the caller stacks them (banner) or
+# arranges them in columns (dashboard).
 
-# ---------------------------------------------------------------- network ---
-section "NETWORK"
-local iface gw private_ip
-if (( is_mac )); then
-  route -n get default 2>/dev/null | awk '/interface:/{i=$2} /gateway:/{g=$2} END{print i, g}' | read -r iface gw
-  private_ip=$(ipconfig getifaddr "${iface:-en0}" 2>/dev/null)
-  local ssid; ssid="$(ipconfig getsummary "${iface:-en0}" 2>/dev/null | awk -F': ' '/ SSID/{print $2; exit}')"
-else
-  ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i=="dev")d=$(i+1); if($i=="via")g=$(i+1)}} END{print d, g}' | read -r iface gw
-  private_ip=$(ip -4 -o addr show "$iface" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
-fi
-kv "Interface"  "${iface:-?}${ssid:+ · Wi-Fi \"$ssid\"}"
-kv "Private IP" "${C_INFO}${private_ip:-?}${C_RESET}  ${C_D}gateway ${gw:-?}"
-# every other interface with an IPv4 (VPNs, Tailscale, Docker, ...)
-local others
-if (( is_mac )); then
-  others="$(ifconfig 2>/dev/null | awk -v skip="$iface" '
-    /^[a-z]/ {i=$1; sub(":","",i)}
-    /inet / && i!=skip && i!="lo0" {printf "%s=%s  ", i, $2}')"
-else
-  others="$(ip -4 -o addr show 2>/dev/null | awk -v skip="$iface" '$2!=skip && $2!="lo" {split($4,a,"/"); printf "%s=%s  ", $2, a[1]}')"
-fi
-[[ -n $others ]] && kv "Other IPs" "$others"
-local dns
-if (( is_mac )); then
-  dns="$(scutil --dns 2>/dev/null | awk '/nameserver\[/{print $3}' | sort -u | tr '\n' ' ')"
-else
-  dns="$(awk '/^nameserver/{print $2}' /etc/resolv.conf 2>/dev/null | tr '\n' ' ')"
-fi
-kv "DNS" "${dns:-?}"
+blk_art() {
+  local indent="    "; (( compact )) && indent=""
+  if [[ -r $art ]]; then
+    local line
+    while IFS= read -r line; do
+      line=${line//\{W\}/$C_W}; line=${line//\{G\}/$C_G}; line=${line//\{D\}/$C_D}
+      line=${line//\{R\}/$C_R}; line=${line//\{O\}/$C_O}; line=${line//\{C\}/$C_C}
+      line=${line//\{B\}/$C_B}; line=${line//\{Y\}/$C_Y}; line=${line//\{X\}/$C_RESET}
+      print -r -- "$indent$line$C_RESET"
+    done < "$art"
+  fi
+  if (( compact )); then
+    print -r -- "${C_Y}${C_BOLD}May the Force be with you, ${USER}.${C_RESET}"
+  else
+    print
+    print -r -- "  ${C_Y}${C_BOLD}May the Force be with you, ${USER}.${C_RESET}  ${C_D}Red Five standing by on $(hostname -s)${C_RESET}"
+  fi
+}
 
-if (( nonet )); then
-  kv "Public IP" "${C_D}(skipped, --no-net)"
-else
-  local pub; pub="$(cached pubip curl -s -m 4 https://ipinfo.io/json)"
-  if [[ -n $pub ]] && command -v jq >/dev/null; then
-    local pip porg pcity pregion pcountry phost
-    pip=$(jq -r '.ip // empty' <<< "$pub"); porg=$(jq -r '.org // empty' <<< "$pub")
+blk_system() {
+  section "SYSTEM"
+  kv "Host" "$(hostname -s) ${C_D}($(hostname))"
+  (( is_mac && ! compact )) && kv "Name" "$computer_name"
+  kv "OS" "$os"
+  if (( is_mac )); then
+    local -a u=("${(@f)$(upd_macos)}")
+    kv "OS updates" "$u[1]"
+    (( $#u > 1 && ! compact )) && kv "" "$u[2]"
+  fi
+  kv "Kernel" "$kernel"
+  kv "Hardware" "${model:-?} · ${chip:-?} · ${cpus} cores · ${mem_total} GB RAM"
+  (( $+commands[brew] )) && kv "Homebrew" "$(upd_brew)"
+  if (( compact )); then
+    kv "Date" "$(date '+%a %d %b %Y, %H:%M:%S %Z')"
+  else
+    kv "Shell" "zsh $ZSH_VERSION · ${TERM_PROGRAM:-${TERM:-unknown terminal}}"
+    kv "Date" "$(date '+%A %d %B %Y, %H:%M %Z')"
+  fi
+  kv "Uptime" "$(uptime | sed -E 's/.* up +//; s/, +[0-9]+ users?.*//; s/  +/ /g')"
+  if (( compact )); then
+    # one line: every logged-in user with their session count
+    local -A sessions; local u2 s=""
+    while read -r u2 _; do [[ -n $u2 ]] && (( sessions[$u2]++ )); done <<< "$(who 2>/dev/null)"
+    for u2 in ${(ko)sessions}; do
+      if [[ $u2 == $USER ]]; then s+="${C_V}${u2} ×${sessions[$u2]}  "
+      else s+="${C_WARN}${u2} ×${sessions[$u2]} (someone else)  "; fi
+    done
+    kv "Logged in" "$s"
+  fi
+}
+
+blk_who() {
+  section "WHO IS HERE"
+  local me=$USER who_out u tag
+  who_out="$(who 2>/dev/null)"
+  local -A sessions
+  while read -r u _; do [[ -n $u ]] && (( sessions[$u]++ )); done <<< "$who_out"
+  for u in ${(ko)sessions}; do
+    if [[ $u == $me ]]; then tag="${C_D}(you)"; else tag="${C_WARN}← someone else"; fi
+    kv "$u" "${sessions[$u]} session(s) $tag"
+  done
+  local remote; remote="$(print -r -- "$who_out" | awk '$NF ~ /^\(/ {print $1, $NF}' | sort -u)"
+  [[ -n $remote ]] && kv "Remote" "$(print -r -- "$remote" | tr '\n' ' ')"
+  [[ -n ${SSH_CONNECTION:-} ]] && kv "You via SSH" "${SSH_CONNECTION%% *} → ${SSH_CONNECTION##* }"
+  kv "Last login" "$(last -1 "$me" 2>/dev/null | awk 'NR==1{$1=""; print}' | sed 's/^ *//')"
+}
+
+blk_resources() {
+  section "RESOURCES"
+  local load cpu_pct mem_used_pct
+  load="$(uptime | sed -E 's/.*load averages?: //')"
+  # instantaneous CPU: sum of %cpu across processes / cores
+  cpu_pct=$(ps -A -o %cpu= | awk -v n="${cpus:-1}" '{s+=$1} END {printf "%d", s/n}')
+  kv "CPU" "$(bar $cpu_pct)  ${C_D}load $load"
+  if (( is_mac )); then
+    local pg active=0 wired=0 compressed=0
+    pg=$(sysctl -n hw.pagesize)
+    eval "$(vm_stat | awk -F'[: .]+' '
+      /Pages active/           {print "active="$3}
+      /Pages wired/            {print "wired="$4}
+      /occupied by compressor/ {print "compressed="$5}')"
+    local used_gb=$(( (active + wired + compressed) * pg / 1024 / 1024 / 1024 ))
+    mem_used_pct=$(( used_gb * 100 / mem_total ))
+    local note="${used_gb}/${mem_total} GB"; (( compact )) || note+=" (active+wired+compressed)"
+    kv "Memory" "$(bar $mem_used_pct)  ${C_D}${note}"
+  else
+    local mt=1 mu=0
+    eval "$(free -m | awk '/Mem:/{print "mt="$2"; mu="$3}')"
+    kv "Memory" "$(bar $(( mu * 100 / mt )))  ${C_D}$(( mu / 1024 ))/$(( mt / 1024 )) GB"
+  fi
+  local dpct dused dtot davail
+  df -h / 2>/dev/null | awk 'NR==2 {print $5, $3, $2, $4}' | read -r dpct dused dtot davail
+  if (( compact )); then kv "Disk /" "$(bar ${dpct%\%})  ${C_D}${davail} free of ${dtot}"
+  else kv "Disk /" "$(bar ${dpct%\%})  ${C_D}${dused} used of ${dtot}, ${davail} free"; fi
+  if (( is_mac && $+commands[pmset] )); then
+    local batt; batt="$(pmset -g batt 2>/dev/null | awk -F'\t' '/InternalBattery/{print $2}' | sed 's/ present.*//')"
+    [[ -n $batt ]] && kv "Battery" "$batt"
+  fi
+  (( compact )) || kv "Processes" "$(ps -A | wc -l | tr -d ' ') running · $(ps -A -o user= | sort -u | wc -l | tr -d ' ') distinct users"
+}
+
+# default interface, gateway and private IP; shared by the network and route blocks
+local iface="" gw="" private_ip="" ssid=""
+net_basics() {
+  if (( is_mac )); then
+    route -n get default 2>/dev/null | awk '/interface:/{i=$2} /gateway:/{g=$2} END{print i, g}' | read -r iface gw
+    private_ip=$(ipconfig getifaddr "${iface:-en0}" 2>/dev/null)
+    ssid="$(ipconfig getsummary "${iface:-en0}" 2>/dev/null | awk -F': ' '/ SSID/{print $2; exit}')"
+  else
+    ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i=="dev")d=$(i+1); if($i=="via")g=$(i+1)}} END{print d, g}' | read -r iface gw
+    private_ip=$(ip -4 -o addr show "$iface" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+  fi
+}
+
+blk_network() {
+  section "NETWORK"
+  kv "Interface"  "${iface:-none}${ssid:+ · Wi-Fi \"$ssid\"}"
+  kv "Private IP" "${C_INFO}${private_ip:-none}${C_RESET}  ${C_D}gateway ${gw:-none}"
+  if (( ! compact )); then
+    # every other interface with an IPv4 (VPNs, Tailscale, Docker, ...)
+    local others
+    if (( is_mac )); then
+      others="$(ifconfig 2>/dev/null | awk -v skip="$iface" '
+        /^[a-z]/ {i=$1; sub(":","",i)}
+        /inet / && i!=skip && i!="lo0" {printf "%s=%s  ", i, $2}')"
+    else
+      others="$(ip -4 -o addr show 2>/dev/null | awk -v skip="$iface" '$2!=skip && $2!="lo" {split($4,a,"/"); printf "%s=%s  ", $2, a[1]}')"
+    fi
+    [[ -n $others ]] && kv "Other IPs" "$others"
+  fi
+  local dns
+  if (( is_mac )); then
+    dns="$(scutil --dns 2>/dev/null | awk '/nameserver\[/{print $3}' | sort -u | tr '\n' ' ')"
+  else
+    dns="$(awk '/^nameserver/{print $2}' /etc/resolv.conf 2>/dev/null | tr '\n' ' ')"
+  fi
+  kv "DNS" "${dns:-none}"
+  if (( nonet )); then
+    kv "Public IP" "${C_D}(skipped, --no-net)"
+    return
+  fi
+  local pub pip="" porg pcity pregion pcountry phost
+  pub="$(cached pubip $ttl curl -s -m 4 https://ipinfo.io/json)"
+  [[ -n $pub ]] && pip=$(jq -r '.ip // empty' <<< "$pub" 2>/dev/null)
+  if [[ -n $pip ]]; then
+    porg=$(jq -r '.org // empty' <<< "$pub"); phost=$(jq -r '.hostname // empty' <<< "$pub")
     pcity=$(jq -r '.city // empty' <<< "$pub"); pregion=$(jq -r '.region // empty' <<< "$pub")
-    pcountry=$(jq -r '.country // empty' <<< "$pub"); phost=$(jq -r '.hostname // empty' <<< "$pub")
+    pcountry=$(jq -r '.country // empty' <<< "$pub")
     kv "Public IP" "${C_INFO}${pip}${C_RESET}  ${C_D}${phost}"
     kv "ISP"       "${porg}  ${C_D}${pcity}, ${pregion} ${pcountry}"
   else
-    pub="$(cached pubip2 curl -s -m 4 https://api.ipify.org)"
-    kv "Public IP" "${C_INFO}${pub:-unreachable}${C_RESET}"
+    pip="$(cached pubip2 $ttl curl -s -m 4 https://api.ipify.org)"
+    kv "Public IP" "${C_INFO}${pip:-looking up… / offline}${C_RESET}"
   fi
-  [[ -n $private_ip && -n ${pip:-$pub} && $private_ip != ${pip:-$pub} ]] && \
-    kv "NAT" "yes ${C_D}(${private_ip} → ${pip:-$pub})"
+  [[ -n $private_ip && -n $pip && $private_ip != $pip ]] && kv "NAT" "yes ${C_D}(${private_ip} → ${pip})"
+}
 
-  # -------------------------------------------------------------- route ---
+# Tailscale: this device, exit node, and every peer in the tailnet.
+ts_query() {
+  "$1" status --json 2>/dev/null | jq -r '
+    def nm: ((.DNSName // "") | split(".")[0]) as $d | if ($d // "") == "" then .HostName else $d end;
+    def ago: (now - .) as $s
+      | if $s > 1e9 then "never"
+        elif $s < 3600 then "\($s / 60 | floor)m ago"
+        elif $s < 86400 then "\($s / 3600 | floor)h ago"
+        else "\($s / 86400 | floor)d ago" end;
+    "S|\(.BackendState)|\(.MagicDNSSuffix // "")|\(.Self | nm)|\(.Self.TailscaleIPs[0]? // "-")|\(.Self.Relay // "")|\([.Peer[]? | select(.ExitNode == true) | nm][0] // "")|\(.Health | length)",
+    ([.Peer[]?] | sort_by([(.Online | not), nm]) | .[]
+      | "P|\(nm)|\(.TailscaleIPs[0]? // "-")|\(.OS)|\(.Online)|\(if (.CurAddr // "") != "" then "direct" elif .Active then "relay \(.Relay)" else "idle" end)|\((.LastSeen // "0001-01-01T00:00:00Z") | sub("\\.[0-9]+Z$"; "Z") | (try fromdateiso8601 catch 0) | ago)|\(.ExitNodeOption)")'
+}
+blk_tailscale() {
+  local ts=${commands[tailscale]:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}
+  [[ -x $ts ]] && (( $+commands[jq] )) || return 0
+  section "TAILSCALE"
+  local data; data="$(cached tailscale 20 ts_query "$ts")"
+  if [[ -z $data ]]; then kv "Status" "${C_D}not running"; return; fi
+  local -a rows=("${(@f)data}")
+  local kind f1 f2 f3 f4 f5 f6 f7
+  local -i total=0 online=0 shown=0 max=12
+  (( compact )) && max=6
+  local -a peers
+  for r in $rows; do
+    IFS='|' read -r kind f1 f2 f3 f4 f5 f6 f7 <<< "$r"
+    if [[ $kind == S ]]; then
+      if [[ $f1 == Running ]]; then kv "Status" "${C_OK}● connected${C_D} · tailnet ${C_V}${f2}"
+      else kv "Status" "${C_WARN}○ ${f1}"; fi
+      kv "This device" "${C_V}${f3}  ${C_INFO}${f4}${C_D}${f5:+  relay $f5}"
+      [[ -n $f6 ]] && kv "Exit node" "${C_WARN}${f6}"
+      (( f7 > 0 )) && kv "Health" "${C_WARN}${f7} warning(s) · run tailscale status"
+    else
+      (( total++ ))
+      [[ $f4 == true ]] && (( online++ ))
+      (( shown >= max )) && continue
+      (( shown++ ))
+      local exit_tag=""; [[ $f7 == true ]] && exit_tag=" ${C_D}(exit node)"
+      if [[ $f4 == true ]]; then
+        peers+=("$(printf "  %s● %s%-18s %s%-16s %s%-8s %s%s%s" "$C_OK" "$C_V" "$f1" "$C_INFO" "$f2" "$C_D" "$f3" "$C_OK" "$f5" "$exit_tag")")
+      else
+        peers+=("$(printf "  %s○ %-18s %-16s %-8s seen %s%s" "$C_D" "$f1" "$f2" "$f3" "$f6" "$exit_tag")")
+      fi
+    fi
+  done
+  kv "Peers" "${C_OK}${online} online${C_D} of ${total}"
+  (( $#peers )) && print -rl -- "${peers[@]/%/$C_RESET}"
+  (( total > shown )) && print -r -- "  ${C_D}… and $(( total - shown )) more · run tailscale status${C_RESET}"
+}
+
+blk_route() {
   section "ROUTE TO INTERNET" "traceroute to ${target}"
   local trace
-  trace="$(cached "trace_${target}" traceroute -n -q 1 -w 1 -m 20 "$target")"
+  trace="$(cached "trace_${target}" $ttl traceroute -n -q 1 -w 1 -m 20 "$target")"
   if [[ -z $trace ]]; then
-    kv "Trace" "${C_BAD}no route / traceroute unavailable"
+    if (( async )); then kv "Trace" "${C_D}tracing…"; else kv "Trace" "${C_BAD}no route / traceroute unavailable"; fi
+    return
+  fi
+  if (( compact )); then
+    printf "  %s%-3s %-16s %-8s %s%s\n" "$C_K" "hop" "address" "latency" "what it is" "$C_RESET"
   else
     printf "  %s%-4s %-18s %-10s %-9s %s%s\n" "$C_K" "hop" "address" "kind" "latency" "name" "$C_RESET"
-    local hop addr ms rest cls col name lat org
-    print -r -- "$trace" | awk '$1 ~ /^[0-9]+$/' | while read -r hop addr ms rest; do
-      if [[ $addr == '*' ]]; then
-        printf "  %s%-4s %-18s %-10s %-9s %s%s\n" "$C_D" "$hop" "*" "no reply" "-" "" "$C_RESET"
-        continue
-      fi
-      cls=$(ipclass "$addr")
-      case $cls in
-        private)    col=$C_INFO
-          if [[ $addr == ${gw:-none} ]]; then name="your router (default gateway)"
-          else name="private address inside the ISP"; fi;;
-        cgnat)      col=$C_WARN; name="ISP carrier-grade NAT (100.64/10)";;
-        link-local) col=$C_D;    name="link-local";;
-        *)          col=$C_OK
-          if [[ $addr == $target ]]; then name="destination"
-          else
-            # reverse DNS name, plus the network owner (AS number and organisation)
-            name="$(cached "rdns_${addr}" dig +short +time=1 +tries=1 -x "$addr" | head -1)"; name=${name%.}
-            org="$(cached "org_${addr}" curl -s -m 2 "https://ipinfo.io/${addr}/org")"
-            [[ $org == *[\{\<]* ]] && org=""          # ignore error pages
-            name="${org}${org:+${name:+ · }}${name}"
-          fi;;
-      esac
-      lat="${ms%.*}"
-      local latcol=$C_OK; (( lat >= 30 )) && latcol=$C_WARN; (( lat >= 100 )) && latcol=$C_BAD
+  fi
+  local hop addr ms rest cls col name lat org latcol
+  print -r -- "$trace" | awk '$1 ~ /^[0-9]+$/' | while read -r hop addr ms rest; do
+    if [[ $addr == '*' ]]; then
+      if (( compact )); then printf "  %s%-3s %-16s %-8s%s\n" "$C_D" "$hop" "*" "no reply" "$C_RESET"
+      else printf "  %s%-4s %-18s %-10s %-9s%s\n" "$C_D" "$hop" "*" "no reply" "-" "$C_RESET"; fi
+      continue
+    fi
+    cls=$(ipclass "$addr")
+    case $cls in
+      private)    col=$C_INFO
+        if [[ $addr == ${gw:-none} ]]; then name="your router (default gateway)"
+        else name="private address inside the ISP"; fi ;;
+      cgnat)      col=$C_WARN; name="ISP carrier-grade NAT (100.64/10)" ;;
+      link-local) col=$C_D;    name="link-local" ;;
+      *)          col=$C_OK
+        if [[ $addr == $target ]]; then name="destination"
+        else
+          # network owner (AS number and organisation), plus the reverse DNS name
+          name="$(cached "rdns_${addr}" 86400 dig +short +time=1 +tries=1 -x "$addr" | head -1)"; name=${name%.}
+          org="$(cached "org_${addr}" 86400 curl -s -m 2 "https://ipinfo.io/${addr}/org")"
+          [[ $org == *[\{\<]* ]] && org=""          # ignore error pages
+          name="${org}${org:+${name:+ · }}${name}"
+        fi ;;
+    esac
+    lat=${ms%.*}
+    latcol=$C_OK; (( lat >= 30 )) && latcol=$C_WARN; (( lat >= 100 )) && latcol=$C_BAD
+    if (( compact )); then
+      printf "  %s%-3s %s%-16s %s%-8s %s%s%s\n" \
+        "$C_V" "$hop" "$col" "$addr" "$latcol" "$(printf '%.1f' $ms) ms" "$C_D" "$name" "$C_RESET"
+    else
       printf "  %s%-4s %s%-18s %s%-10s %s%-9s %s%s%s\n" \
         "$C_V" "$hop" "$col" "$addr" "$C_V" "$cls" "$latcol" "${ms} ms" "$C_D" "$name" "$C_RESET"
-    done
-    local hops; hops=$(print -r -- "$trace" | awk '$1 ~ /^[0-9]+$/' | wc -l | tr -d ' ')
-    printf "  %s%s hops · cached for %ss · run %shello --fresh%s to refresh%s\n" "$C_D" "$hops" "$ttl" "$C_V" "$C_D" "$C_RESET"
+    fi
+  done
+  local hops; hops=$(print -r -- "$trace" | awk '$1 ~ /^[0-9]+$/' | wc -l | tr -d ' ')
+  mtime "$cache_dir/trace_${target}"; ago $(( EPOCHSECONDS - REPLY ))
+  if (( compact )); then
+    printf "  %s%s hops · traced %s · refreshes every %ss%s\n" "$C_D" "$hops" "$REPLY" "$ttl" "$C_RESET"
+  else
+    printf "  %s%s hops · traced %s · run %shello --fresh%s to refresh%s\n" "$C_D" "$hops" "$REPLY" "$C_V" "$C_D" "$C_RESET"
   fi
+}
+
+# ---------------------------------------------------- one-shot banner ---
+if (( ! dash )); then
+  net_basics
+  print
+  blk_art
+  print; blk_system
+  print; blk_who
+  print; blk_resources
+  print; blk_network
+  local ts_out; ts_out="$(blk_tailscale)"
+  [[ -n $ts_out ]] && { print; print -r -- "$ts_out"; }
+  (( nonet )) || { print; blk_route; }
+  print
+  return 0 2>/dev/null || exit 0
 fi
-print
+
+# ------------------------------------------------------ live dashboard ---
+# flow <ncols> <minheight> <section>...  -> reply = one string per column.
+# Sections are kept whole and spread so the columns end up about equally tall.
+flow() {
+  local n=$1; shift
+  local -a secs=("$@") hs
+  local s m=$#
+  for s in "$@"; do hs+=($(( ${#${(f)s}} + 1 ))); done
+  (( n > m )) && n=$m
+  # hsum <from> <to> -> REPLY = total height of sections from..to
+  hsum() { local k t=0; for (( k = $1; k <= $2; k++ )); do (( t += hs[k] )); done; REPLY=$t; }
+  # try every way to cut the list into n runs; keep the one with the shortest tallest column
+  local a b best=99999 mx h1 h2 h3 cut1=$(( m + 1 )) cut2=$(( m + 1 ))
+  if (( n == 2 )); then
+    for (( a = 2; a <= m; a++ )); do
+      hsum 1 $(( a - 1 )); h1=$REPLY; hsum $a $m; h2=$REPLY
+      mx=$(( h1 > h2 ? h1 : h2 ))
+      (( mx < best )) && { best=$mx; cut1=$a; }
+    done
+  elif (( n >= 3 )); then
+    for (( a = 2; a < m; a++ )); do
+      for (( b = a + 1; b <= m; b++ )); do
+        hsum 1 $(( a - 1 )); h1=$REPLY; hsum $a $(( b - 1 )); h2=$REPLY; hsum $b $m; h3=$REPLY
+        mx=$(( h1 > h2 ? h1 : h2 )); (( h3 > mx )) && mx=$h3
+        (( mx < best )) && { best=$mx; cut1=$a; cut2=$b; }
+      done
+    done
+  fi
+  reply=()
+  local cur="" k
+  for (( k = 1; k <= m; k++ )); do
+    if (( k == cut1 || k == cut2 )); then reply+=("$cur"); cur=""; fi
+    [[ -n $cur ]] && cur+=$'\n\n'
+    cur+=$secs[k]
+  done
+  reply+=("$cur")
+}
+
+# render_dash <cols>  -> out = lines of one frame
+local -a out
+render_dash() {
+  local cols=$1 colw=62 gap=2
+  net_basics
+  local s_art s_sys s_res s_net s_ts s_route=""
+  s_art="$(blk_art)"; s_sys="$(blk_system)"; s_res="$(blk_resources)"
+  s_net="$(blk_network)"; s_ts="$(blk_tailscale)"
+  (( nonet )) || s_route="$(blk_route)"
+  local -a secs=("$s_sys" "$s_res" "$s_net")
+  [[ -n $s_ts ]] && secs+=("$s_ts")
+  [[ -n $s_route ]] && secs+=("$s_route")
+
+  local artw=0 arth=0 l
+  for l in "${(@f)s_art}"; do vlen "$l"; (( REPLY > artw )) && artw=$REPLY; (( arth++ )); done
+
+  local -a C Wd        # column texts and widths
+  local want_art=${VICKS_DASH_ART:-1}
+  if (( side || cols < 2 * colw + gap )); then
+    # one column: art on top when it fits, then every section
+    (( want_art && cols >= artw && side )) && secs=("$s_art" "${secs[@]}")
+    flow 1 "${secs[@]}"; C=("${reply[@]}"); Wd=($cols)
+  elif (( want_art && cols >= artw + 2 * (colw + gap) )); then
+    # art on the left, sections balanced over the remaining columns
+    local n=$(( (cols - artw) / (colw + gap) )); (( n > 3 )) && n=3
+    flow $n "${secs[@]}"
+    C=("$s_art" "${reply[@]}"); Wd=($artw); repeat $#reply Wd+=($colw)
+  else
+    local n=$(( (cols + gap) / (colw + gap) )); (( n > 3 )) && n=3
+    flow $n "${secs[@]}"; C=("${reply[@]}"); repeat $#reply Wd+=($colw)
+  fi
+
+  local i j h=0 cell line pad empty=""
+  local -a L
+  for i in {1..$#C}; do L=("${(@f)C[i]}"); (( $#L > h )) && h=$#L; done
+  out=()
+  for j in {1..$h}; do
+    line=""
+    for i in {1..$#C}; do
+      L=("${(@f)C[i]}")
+      cell=${L[j]:-}
+      vlen "$cell"
+      if (( REPLY > Wd[i] )); then vtrunc "$cell" $Wd[i]; cell=$REPLY; pad=0
+      else pad=$(( Wd[i] - REPLY )); fi
+      line+="$cell"
+      (( i < $#C )) && line+="${(l:pad+gap:: :)empty}"
+    done
+    out+=("$line")
+  done
+}
+
+term_size() {   # -> rows cols
+  if (( force_cols )); then rows=500; cols=$force_cols
+  else stty size </dev/tty 2>/dev/null | read -r rows cols; fi
+  : ${rows:=40} ${cols:=120}
+}
+
+local rows cols
+if (( once )); then
+  term_size; render_dash $cols
+  print -rl -- "${out[@]}"
+  return 0 2>/dev/null || exit 0
+fi
+
+local interval=${VICKS_DASH_INTERVAL:-5}
+dash_cleanup() { print -n $'\e[?25h\e[?7h'; }
+trap 'dash_cleanup; exit 0' INT TERM HUP
+trap 'dash_cleanup' EXIT
+print -n $'\e[?25l\e[?7l\e[2J'      # hide cursor, no line wrap, clear
+
+local key buf last t wh ph want prev_size
+while true; do
+  term_size; prev_size="$rows $cols"
+  render_dash $cols
+  # side pane too short for everything: drop the art so the data fits
+  if (( side && $#out > rows )); then VICKS_DASH_ART=0 render_dash $cols; fi
+  fresh=0
+
+  # inside tmux as the top pane: grow or shrink the pane to fit the content
+  if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] && (( ! side )); then
+    tmux display-message -p -t "$TMUX_PANE" '#{window_height} #{pane_height}' 2>/dev/null | read -r wh ph
+    if [[ -n $wh ]]; then
+      want=$#out; (( want > wh * 60 / 100 )) && want=$(( wh * 60 / 100 ))
+      if (( want != ph && want > 2 )); then
+        tmux resize-pane -t "$TMUX_PANE" -y $want 2>/dev/null
+        rows=$want; prev_size="$rows $cols"
+      fi
+    fi
+  fi
+
+  last=$#out; (( last > rows )) && last=$rows
+  buf=$'\e[H'
+  for (( t = 1; t <= last; t++ )); do
+    buf+="${out[t]}"$'\e[K'
+    (( t < last )) && buf+=$'\n'
+  done
+  buf+=$'\e[J'
+  print -rn -- "$buf"
+
+  # wait, but react within a second to keys, resizes and the shell pane closing
+  for (( t = 0; t < interval; t++ )); do
+    key=""
+    if [[ -t 0 ]]; then read -s -t 1 -k 1 key 2>/dev/null; else sleep 1; fi
+    case $key in
+      q) exit 0 ;;
+      r) fresh=1; break ;;
+    esac
+    if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
+      (( $(tmux list-panes -t "$TMUX_PANE" 2>/dev/null | wc -l) <= 1 )) && exit 0
+    fi
+    term_size; [[ "$rows $cols" != $prev_size ]] && break
+  done
+done

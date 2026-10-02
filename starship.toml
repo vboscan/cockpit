@@ -28,9 +28,8 @@ format = "[@$hostname]($style) "
 [directory]
 style = "bold 39"                   # bright blue
 read_only = " 🔒"
-truncation_length = 4
-truncate_to_repo = true             # inside a repo, show the path from the repo root
-truncation_symbol = "…/"
+truncation_length = 0               # never shorten: always the full path from ~
+truncate_to_repo = false            # keep the folders above a repo visible too
 repo_root_style = "bold 51"         # repo name stands out in cyan
 format = "[$path]($style)[$read_only]($read_only_style) "
 repo_root_format = "[$before_root_path]($before_repo_root_style)[$repo_root]($repo_root_style)[$path]($style)[$read_only]($read_only_style) "

@@ -34,6 +34,16 @@ if ! command -v starship >/dev/null 2>&1; then
   fi
 fi
 
+# 1b. tmux, used by the `cockpit` command (live dashboard pinned above the shell).
+if ! command -v tmux >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "Installing tmux with Homebrew..."
+    brew install tmux
+  else
+    echo "tmux not found; the 'cockpit' command needs it. The banner and prompt work without it."
+  fi
+fi
+
 # 2. Hook into ~/.zshrc (replace any previous block so the path stays current).
 remove_block
 touch "$ZSHRC"
