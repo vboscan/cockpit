@@ -224,6 +224,7 @@ The layout adapts to the window width.
 ### What changes inside the cockpit
 
 - **Scrolling:** the mouse wheel scrolls the shell history. The terminal's own scrollbar does not.
+- **Agent alerts in cmux keep working.** cmux learns that Claude or another agent has finished through small wrappers it puts first on the PATH. Its own shell integration does not run inside tmux panes, so the setup puts that folder first itself.
 - **Cmd+K:** clears the shell pane and its scrollback and leaves the banner alone. In Ghostty-based terminals (Ghostty, cmux) the installer remaps Cmd+K to send a private key code, because the default action wipes the terminal's own buffer behind tmux's back. Reload the terminal's configuration once after installing. In other terminals, use `clear && tmux clear-history`.
 - **Copying:** drag to select and the text is copied on release. Hold Option while dragging to use the terminal's own selection.
 

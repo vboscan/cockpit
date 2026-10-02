@@ -25,6 +25,24 @@ export VIRTUAL_ENV_DISABLE_PROMPT=1   # the prompt shows the venv itself
 export VICKS_LOGIN_USER=${VICKS_LOGIN_USER:-$(stat -c %U "$TTY" 2>/dev/null || stat -f %Su "$TTY" 2>/dev/null)}
 [[ -d $HOME/.local/bin && :$PATH: != *:$HOME/.local/bin:* ]] && PATH=$HOME/.local/bin:$PATH
 
+# cmux hands each terminal a folder of small wrappers for claude and other agents
+# ($CMUX_AGENT_COMMAND_SHIM_ROOT). Its wrapper is what tells cmux when an agent has
+# finished, so the folder has to come first on the PATH. In a plain cmux terminal,
+# cmux's own shell integration sees to that; inside tmux panes that integration does
+# not run, and ~/.local/bin/claude would win. Put the folder of *this* terminal first
+# and drop the ones inherited from other terminals through the tmux server.
+_vicks_cmux_shims() {
+  local root=${CMUX_AGENT_COMMAND_SHIM_ROOT:-${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}}
+  [[ -n $root && -d $root ]] || return 0
+  path=($root ${path:#*/cmux-cli-shims/*})
+}
+_vicks_cmux_shims
+if [[ -n ${CMUX_AGENT_COMMAND_SHIM_ROOT:-${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}} ]]; then
+  # once more at the first prompt, in case something later in ~/.zshrc edits the PATH
+  _vicks_cmux_shims_once() { _vicks_cmux_shims; add-zsh-hook -d precmd _vicks_cmux_shims_once; }
+  autoload -Uz add-zsh-hook; add-zsh-hook precmd _vicks_cmux_shims_once
+fi
+
 # `hello` prints the banner any time; `hello --fresh` bypasses the network cache.
 hello() { zsh "$VICKS_HOME/banner.zsh" "$@"; }
 

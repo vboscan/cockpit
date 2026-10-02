@@ -20,6 +20,19 @@ export VICKS_LOGIN_USER="${VICKS_LOGIN_USER:-$(stat -c %U "$_vicks_tty" 2>/dev/n
 unset _vicks_tty
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" ;; esac
 
+# cmux's wrappers for claude and other agents must come first on the PATH, or cmux is
+# never told when an agent finishes. Inside tmux panes cmux's own shell integration
+# does not run, so do it here (see vicks.zsh for the full explanation).
+_vicks_shim_root="${CMUX_AGENT_COMMAND_SHIM_ROOT:-${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}}"
+if [ -n "$_vicks_shim_root" ] && [ -d "$_vicks_shim_root" ]; then
+  _vicks_new_path="$_vicks_shim_root"; _vicks_ifs=$IFS; IFS=:
+  for _vicks_p in $PATH; do
+    case $_vicks_p in */cmux-cli-shims/*) ;; *) _vicks_new_path="$_vicks_new_path:$_vicks_p" ;; esac
+  done
+  IFS=$_vicks_ifs; PATH="$_vicks_new_path"
+fi
+unset _vicks_shim_root _vicks_new_path _vicks_ifs _vicks_p
+
 hello()   { zsh "$VICKS_HOME/banner.zsh" "$@"; }
 cockpit() { sh "$VICKS_HOME/cockpit.sh" "$@"; }
 
