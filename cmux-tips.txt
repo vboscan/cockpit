@@ -57,11 +57,11 @@ cmd+opt+f          | Global search
 cmd+e              | Find the selection
 
 # ── browser and diff ──
-# cmd+shift+b is a custom binding (shortcuts.bindings.splitBrowserRight in cmux.json).
-# The default, cmd+opt+d, is taken by macOS for hiding the Dock.
+# cmd+shift+b and cmd+ctrl+b are custom bindings (shortcuts.bindings in cmux.json).
+# The default for "right", cmd+opt+d, is taken by macOS for hiding the Dock.
 cmd+shift+l        | Open browser
-cmd+shift+opt+d    | Browser below
-cmd+shift+b        | Browser to right
+cmd+shift+b        | Browser below
+cmd+ctrl+b         | Browser to right
 cmd+opt+i          | Browser devtools
 cmd+ctrl+shift+d   | Open diff viewer
 
