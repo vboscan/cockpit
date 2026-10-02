@@ -29,16 +29,21 @@ Remove the block again with `./install.sh --uninstall`.
 | X-wing | White and grey hull, red squadron stripes, orange engines, blue canopy |
 | System | Host, OS version and build, pending macOS updates, kernel, hardware, outdated Homebrew packages, uptime |
 | Who is here | Every logged-in user with session count, remote logins, your last login |
-| Resources | CPU, memory and disk bars, the top three consumers of CPU and of memory, load averages, battery, process count |
+| Resources | CPU, memory and disk bars, load averages, battery, process count |
+| Top apps | The five biggest consumers of CPU and the five biggest consumers of memory, side by side |
 | Network | Interface and Wi-Fi name, private IP, gateway, other IPs, DNS, public IP, ISP, NAT |
 | Tailscale | Connection state, tailnet, this device, exit node, every peer with online state |
-| Route to internet | Each traceroute hop to `8.8.8.8` with address kind, latency and network owner |
+| Route to internet | Each hop from this machine up to the first public address, with address kind, latency and network owner |
 
 The public IP comes from a lookup at `ipinfo.io`, so it is correct behind NAT.
 Hop owners come from the same service. Hops are classed as private, carrier-grade NAT or public.
 
-The top consumers are grouped by app, so an app's helper processes count as one entry.
+The route stops at the first public address, because that is where the internet starts.
+The trace is still aimed at `8.8.8.8`. Set `VICKS_TRACE_FULL=1` to see every hop to it.
+
+The top apps are grouped by app, so an app's helper processes count as one entry.
 Their CPU figures are a share of the whole machine, on the same scale as the CPU bar.
+WebKit web pages are the pages open in Safari and in other apps that embed WebKit.
 
 ### How fresh the data is
 
@@ -83,7 +88,7 @@ The layout adapts to the window width.
 | Width | Layout |
 |---|---|
 | 226 columns or more | X-wing plus three columns of data |
-| 162 to 225 columns | X-wing plus two full-width columns of data, about 26 rows |
+| 162 to 225 columns | X-wing plus two full-width columns of data, about 24 rows |
 | 142 to 161 columns | X-wing plus two slightly narrower columns |
 | 126 to 141 columns | Two columns of data, no art |
 | Narrower | One column |
@@ -106,7 +111,9 @@ The layout adapts to the window width.
 | `VICKS_DASH_NET_TTL=120` | The same for the cockpit |
 | `VICKS_DASH_INTERVAL=5` | Seconds between cockpit redraws |
 | `VICKS_UPDATE_TTL=21600` | Seconds between update checks |
-| `VICKS_TRACE_TARGET=8.8.8.8` | Traceroute destination |
+| `VICKS_TRACE_TARGET=8.8.8.8` | Where the traceroute is aimed |
+| `VICKS_TRACE_FULL=1` | Show every hop to the target, not just up to the first public one |
+| `VICKS_TOP_N=5` | How many apps each top list shows |
 | `VICKS_ART=/path/to/file` | Use different art |
 
 Set the variables in `~/.zshrc` above the vicks block.

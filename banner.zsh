@@ -17,7 +17,9 @@
 #         VICKS_DASH_ART=1           0 = never draw the art in the dashboard
 #         VICKS_DASH_ART_FILE=path   art for the dashboard (default: xwing-small.art)
 #         VICKS_UPDATE_TTL=21600     seconds between macOS / Homebrew update checks
-#         VICKS_TRACE_TARGET=8.8.8.8
+#         VICKS_TRACE_TARGET=8.8.8.8  where the traceroute is aimed
+#         VICKS_TRACE_FULL=1         show every hop to the target, not just up to the first public one
+#         VICKS_TOP_N=5              how many apps the TOP APPS lists show
 
 emulate -L zsh
 setopt extendedglob no_nomatch pipe_fail
@@ -73,6 +75,7 @@ local ttl=${VICKS_CACHE_TTL:-600}
 (( dash )) && ttl=${VICKS_DASH_NET_TTL:-120}
 local upd_ttl=${VICKS_UPDATE_TTL:-21600}
 local target=${VICKS_TRACE_TARGET:-8.8.8.8}
+local full_trace=${VICKS_TRACE_FULL:-0}   # 1 = show every hop to the target
 local cache_dir=${XDG_CACHE_HOME:-$HOME/.cache}/vicks
 mkdir -p "$cache_dir" 2>/dev/null
 
@@ -314,47 +317,70 @@ blk_who() {
   kv "Last login" "$(last -1 "$me" 2>/dev/null | awk 'NR==1{$1=""; print}' | sed 's/^ *//')"
 }
 
-blk_resources() {
-  section "RESOURCES"
-  local load cpu_pct mem_used_pct
-  load="$(uptime | sed -E 's/.*load averages?: //')"
-  # One ps call: total CPU, plus the three biggest consumers of CPU and of memory.
-  # Processes are grouped by program name, so an app's helpers count as one entry.
-  # CPU is shown as a share of the whole machine, the same scale as the bar.
-  local psout nmax=24 sep="${C_D} · ${C_V}"
-  (( compact )) && nmax=12
+# proc_snapshot: one ps call per frame -> cpu_total, top_cpu, top_mem.
+# Processes are grouped by program name, so an app's helpers count as one entry.
+# CPU is a share of the whole machine, the same scale as the CPU bar.
+local cpu_total=0
+local -a top_cpu top_mem
+proc_snapshot() {
+  local psout line
   if (( is_mac )); then psout="$(ps -A -c -o pcpu=,rss=,comm= 2>/dev/null)"
   else psout="$(ps -eo pcpu=,rss=,comm= 2>/dev/null)"; fi
-  local -a tops
-  tops=("${(@f)$(print -r -- "$psout" | awk -v n="${cpus:-1}" -v nmax=$nmax -v k=3 '
-    function short(s) { return (length(s) > nmax) ? substr(s, 1, nmax - 1) "~" : s }
+  top_cpu=(); top_mem=()
+  for line in "${(@f)$(print -r -- "$psout" | awk -v n="${cpus:-1}" -v k=${VICKS_TOP_N:-5} '
     {
       c = $1; r = $2; $1 = ""; $2 = ""; sub(/^ +/, "")
       # fold helpers into their app: "Claude Helper (Renderer)" -> "Claude"
       sub(/ Helper.*$/, ""); sub(/^com\.apple\./, "")
-      if ($0 ~ /^WebKit\./) $0 = "Safari/WebKit pages"
+      if ($0 ~ /^WebKit\./) $0 = "WebKit web pages"
       total += c; cpu[$0] += c; mem[$0] += r
     }
     END {
-      printf "%d\n", total / n
+      printf "T|%d\n", total / n
       for (i = 1; i <= k; i++) {
         best = ""; for (p in cpu) if (best == "" || cpu[p] > cpu[best]) best = p
         if (best == "") break
-        out = out (i > 1 ? "|" : "") short(best) " " sprintf("%.0f%%", cpu[best] / n); delete cpu[best]
+        printf "C|%s|%.1f%%\n", best, cpu[best] / n; delete cpu[best]
       }
-      print out; out = ""
       for (i = 1; i <= k; i++) {
         best = ""; for (p in mem) if (best == "" || mem[p] > mem[best]) best = p
         if (best == "") break
         g = mem[best] / 1048576
-        out = out (i > 1 ? "|" : "") short(best) " " (g >= 1 ? sprintf("%.1fG", g) : sprintf("%.0fM", mem[best] / 1024)); delete mem[best]
+        if (g >= 1) printf "M|%s|%.1fG\n", best, g; else printf "M|%s|%.0fM\n", best, mem[best] / 1024
+        delete mem[best]
       }
-      print out
-    }')}")
-  cpu_pct=${tops[1]:-0}
-  local top_cpu=${${tops[2]:-}//\~/…} top_mem=${${tops[3]:-}//\~/…}
+    }')}"; do
+    case $line in
+      T\|*) cpu_total=${line#T|} ;;
+      C\|*) top_cpu+=("${line#C|}") ;;
+      M\|*) top_mem+=("${line#M|}") ;;
+    esac
+  done
+}
+
+# The biggest consumers, two lists side by side: by CPU and by memory.
+blk_top() {
+  section "TOP APPS"
+  local nw=24; (( compact )) && nw=17
+  printf "  %s%-${nw}s %6s   %-${nw}s %6s%s\n" "$C_K" "by CPU" "" "by memory" "" "$C_RESET"
+  local i cn cv mn mv ccol
+  for (( i = 1; i <= ${#top_cpu} || i <= ${#top_mem}; i++ )); do
+    cn=${top_cpu[i]%|*}; cv=${top_cpu[i]##*|}
+    mn=${top_mem[i]%|*}; mv=${top_mem[i]##*|}
+    (( ${#cn} > nw )) && cn="${cn[1,nw-1]}…"
+    (( ${#mn} > nw )) && mn="${mn[1,nw-1]}…"
+    ccol=$C_V; (( ${cv%%.*} >= 20 )) && ccol=$C_WARN; (( ${cv%%.*} >= 50 )) && ccol=$C_BAD
+    printf "  %s%-${nw}s %s%6s   %s%-${nw}s %s%6s%s\n" \
+      "$C_V" "$cn" "$ccol" "$cv" "$C_V" "$mn" "$C_INFO" "$mv" "$C_RESET"
+  done
+}
+
+blk_resources() {
+  section "RESOURCES"
+  local load cpu_pct mem_used_pct
+  load="$(uptime | sed -E 's/.*load averages?: //')"
+  cpu_pct=$cpu_total
   kv "CPU" "$(bar $cpu_pct)  ${C_D}load $load"
-  [[ -n $top_cpu ]] && kv "  ↳ top" "${top_cpu//\|/$sep}"
   if (( is_mac )); then
     local pg active=0 wired=0 compressed=0
     pg=$(sysctl -n hw.pagesize)
@@ -371,7 +397,6 @@ blk_resources() {
     eval "$(free -m | awk '/Mem:/{print "mt="$2"; mu="$3}')"
     kv "Memory" "$(bar $(( mu * 100 / mt )))  ${C_D}$(( mu / 1024 ))/$(( mt / 1024 )) GB"
   fi
-  [[ -n $top_mem ]] && kv "  ↳ top" "${top_mem//\|/$sep}"
   local dpct dused dtot davail
   df -h / 2>/dev/null | awk 'NR==2 {print $5, $3, $2, $4}' | read -r dpct dused dtot davail
   if (( compact )); then kv "Disk /" "$(bar ${dpct%\%})  ${C_D}${davail} free of ${dtot}"
@@ -492,7 +517,8 @@ blk_tailscale() {
 }
 
 blk_route() {
-  section "ROUTE TO INTERNET" "traceroute to ${target}"
+  if (( full_trace )); then section "ROUTE TO INTERNET" "traceroute to ${target}"
+  else section "ROUTE TO INTERNET" "up to the first public address"; fi
   local trace
   trace="$(cached "trace_${target}" $ttl traceroute -n -q 1 -w 1 -m 20 "$target")"
   if [[ -z $trace ]]; then
@@ -505,10 +531,12 @@ blk_route() {
     printf "  %s%-4s %-18s %-10s %-9s %s%s\n" "$C_K" "hop" "address" "kind" "latency" "name" "$C_RESET"
   fi
   local hop addr ms rest cls col name lat org latcol
+  local -i shown=0 reached=0
   print -r -- "$trace" | awk '$1 ~ /^[0-9]+$/' | while read -r hop addr ms rest; do
     if [[ $addr == '*' ]]; then
       if (( compact )); then printf "  %s%-3s %-16s %-8s%s\n" "$C_D" "$hop" "*" "no reply" "$C_RESET"
       else printf "  %s%-4s %-18s %-10s %-9s%s\n" "$C_D" "$hop" "*" "no reply" "-" "$C_RESET"; fi
+      (( shown++ ))
       continue
     fi
     cls=$(ipclass "$addr")
@@ -528,6 +556,7 @@ blk_route() {
           name="${org}${org:+${name:+ · }}${name}"
         fi ;;
     esac
+    (( shown++ ))
     lat=${ms%.*}
     latcol=$C_OK; (( lat >= 30 )) && latcol=$C_WARN; (( lat >= 100 )) && latcol=$C_BAD
     if (( compact )); then
@@ -537,24 +566,30 @@ blk_route() {
       printf "  %s%-4s %s%-18s %s%-10s %s%-9s %s%s%s\n" \
         "$C_V" "$hop" "$col" "$addr" "$C_V" "$cls" "$latcol" "${ms} ms" "$C_D" "$name" "$C_RESET"
     fi
+    # the first public address is where the internet starts: stop there
+    if [[ $cls == public ]]; then reached=1; (( full_trace )) || break; fi
   done
-  local hops; hops=$(print -r -- "$trace" | awk '$1 ~ /^[0-9]+$/' | wc -l | tr -d ' ')
   mtime "$cache_dir/trace_${target}"; ago $(( EPOCHSECONDS - REPLY ))
+  local summary
+  if (( full_trace )); then summary="${shown} hops to ${target}"
+  elif (( reached )); then summary="on the internet after ${shown} hops"
+  else summary="${C_WARN}no public address reached${C_D}"; fi
   if (( compact )); then
-    printf "  %s%s hops · traced %s · refreshes every %ss%s\n" "$C_D" "$hops" "$REPLY" "$ttl" "$C_RESET"
+    printf "  %s%s · traced %s%s\n" "$C_D" "$summary" "$REPLY" "$C_RESET"
   else
-    printf "  %s%s hops · traced %s · run %shello --fresh%s to refresh%s\n" "$C_D" "$hops" "$REPLY" "$C_V" "$C_D" "$C_RESET"
+    printf "  %s%s · traced %s · run %shello --fresh%s to refresh%s\n" "$C_D" "$summary" "$REPLY" "$C_V" "$C_D" "$C_RESET"
   fi
 }
 
 # ---------------------------------------------------- one-shot banner ---
 if (( ! dash )); then
-  net_basics
+  net_basics; proc_snapshot
   print
   blk_art
   print; blk_system
   print; blk_who
   print; blk_resources
+  print; blk_top
   print; blk_network
   local ts_out; ts_out="$(blk_tailscale)"
   [[ -n $ts_out ]] && { print; print -r -- "$ts_out"; }
@@ -605,12 +640,12 @@ flow() {
 local -a out
 render_dash() {
   local cols=$1 colw=62 gap=2
-  net_basics
-  local s_art s_sys s_res s_net s_ts s_route=""
-  s_art="$(blk_art)"; s_sys="$(blk_system)"; s_res="$(blk_resources)"
+  net_basics; proc_snapshot
+  local s_art s_sys s_res s_top s_net s_ts s_route=""
+  s_art="$(blk_art)"; s_sys="$(blk_system)"; s_res="$(blk_resources)"; s_top="$(blk_top)"
   s_net="$(blk_network)"; s_ts="$(blk_tailscale)"
   (( nonet )) || s_route="$(blk_route)"
-  local -a secs=("$s_sys" "$s_res" "$s_net")
+  local -a secs=("$s_sys" "$s_res" "$s_top" "$s_net")
   [[ -n $s_ts ]] && secs+=("$s_ts")
   [[ -n $s_route ]] && secs+=("$s_route")
 
