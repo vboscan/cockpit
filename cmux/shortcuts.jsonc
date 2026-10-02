@@ -1,0 +1,10 @@
+  // >>> vicks-prompt-hello-world >>>
+  // Browser splits on the B key. cmux's default for "browser to the right", cmd+opt+d,
+  // is taken by macOS (hide/show the Dock). cmd+opt+b stays with the right sidebar.
+  "shortcuts": {
+    "bindings": {
+      "splitBrowserDown": "cmd+shift+b",
+      "splitBrowserRight": "cmd+ctrl+b"
+    }
+  },
+  // <<< vicks-prompt-hello-world <<<

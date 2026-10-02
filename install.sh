@@ -59,6 +59,7 @@ if [ "$ACTION" = uninstall ]; then
            "$HOME/.config/ghostty/config.ghostty" "$HOME/.config/ghostty/config"; do
     remove_block "$f"
   done
+  remove_block "$HOME/.config/cmux/cmux.json" "  // >>> vicks-prompt-hello-world >>>" "  // <<< vicks-prompt-hello-world <<<"
   remove_block "$CLAUDE_MD" "$MD_BEGIN" "$MD_END"
   remove_btw_hook
   rm -f "$CLAUDE_DIR/skills/btw/SKILL.md" "$CLAUDE_DIR/skills/btw/btw-side.sh"
@@ -146,6 +147,23 @@ if [ "$(uname -s)" = Darwin ]; then
       echo "$END"
     } >> "$GCONF"
     echo "Cmd+K remapped in $GCONF. Reload the terminal's configuration or restart it to apply."
+  fi
+fi
+
+# ── 1d. cmux shortcuts ───────────────────────────────────────────────────
+# Adds cmux/shortcuts.jsonc to ~/.config/cmux/cmux.json, once. Skipped when the file
+# already has an active "shortcuts" section, so your own bindings are never replaced.
+CMUX_JSON="$HOME/.config/cmux/cmux.json"
+if [ -f "$CMUX_JSON" ] && [ -f "$REPO/cmux/shortcuts.jsonc" ]; then
+  if grep -qE '^[[:space:]]*"shortcuts"[[:space:]]*:' "$CMUX_JSON"; then
+    :   # already has shortcuts (ours or yours)
+  elif grep -qE '^[[:space:]]*"schemaVersion"' "$CMUX_JSON"; then
+    cp "$CMUX_JSON" "$CMUX_JSON.vicks-backup"
+    awk -v f="$REPO/cmux/shortcuts.jsonc" '
+      { print }
+      !done && /^[[:space:]]*"schemaVersion"/ { print ""; while ((getline line < f) > 0) print line; done = 1 }
+    ' "$CMUX_JSON.vicks-backup" > "$CMUX_JSON"
+    echo "cmux: browser split shortcuts added to $CMUX_JSON (cmd+shift+b below, cmd+ctrl+b right)."
   fi
 fi
 

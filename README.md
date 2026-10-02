@@ -14,13 +14,15 @@ cd vicks-prompt-hello-world
 ./install.sh
 ```
 
-The installer does five things:
+The installer does six things:
 
 1. Installs [Starship](https://starship.rs) with Homebrew if it is missing. It draws the prompt.
 2. Installs [tmux](https://github.com/tmux/tmux) and `iperf3` with Homebrew if they are missing. The cockpit needs tmux, and the Tailscale speed test needs iperf3.
 3. Adds one marked block to `~/.zshrc` that sources `vicks.zsh` from this folder.
 4. If a Ghostty or cmux configuration file exists, adds one marked block to it that makes Cmd+K work with the pinned banner.
 5. If Claude Code is set up (`~/.claude` exists), installs the `/btw` side pane: a skill, one hook in `~/.claude/settings.json` and one marked block in `~/.claude/CLAUDE.md`. See [Claude Code in the cockpit](#claude-code-in-the-cockpit).
+
+6. If cmux is set up, adds two browser shortcuts to `~/.config/cmux/cmux.json`, unless that file already has its own shortcuts.
 
 Remove all of it again with `./install.sh --uninstall`.
 
@@ -161,6 +163,18 @@ tmux does not start by itself in these cases, where a plain shell is used instea
 **How it works.** Each terminal has its own tmux session holding only its shell, tagged with its cmux workspace.
 The banner is one extra pane. [cockpit.sh](cockpit.sh) reconciles whenever a terminal opens or closes: a workspace with no banner gets one in its most recently used terminal, and a workspace with two loses the older one.
 Because the banner is only a pane, moving it never touches a running shell.
+
+### cmux shortcuts
+
+[cmux/shortcuts.jsonc](cmux/shortcuts.jsonc) holds the cmux key bindings this setup adds.
+
+| Keys | Action |
+|---|---|
+| `cmd+shift+b` | Browser in a split below |
+| `cmd+ctrl+b` | Browser in a split to the right |
+
+cmux's default for a browser to the right is `cmd+opt+d`, which macOS uses to hide the Dock.
+cmux has no setting for where a new browser opens, so its own "Open browser" key, `cmd+shift+l`, keeps cmux's placement. Use `cmd+shift+b` when you want it below.
 
 ### Sidebar labels in cmux
 
@@ -339,6 +353,7 @@ If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws t
 | `tmux.conf` | tmux settings used only by the cockpit |
 | `claude/btw/` | The `/btw` skill for Claude Code and the script that opens the side pane |
 | `claude/cockpit-rules.md` | The block added to `~/.claude/CLAUDE.md` |
+| `cmux/shortcuts.jsonc` | The key bindings added to cmux's settings |
 | `install.sh` | Installer and uninstaller for macOS and Linux |
 
 Built and tested on macOS with zsh and bash. The Linux code paths are written but have not been run on a Linux machine yet.
