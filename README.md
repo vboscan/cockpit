@@ -50,10 +50,10 @@ WebKit web pages are the pages open in Safari and in other apps that embed WebKi
 ### Rotating tips
 
 Under the X-wing, the banner shows five cmux shortcuts and commands at a time and moves to the next five every 30 seconds.
-The list has 50 tips in ten themed pages: getting around, creating, panes, attention, finding, browser, housekeeping, settings, cmux commands and this banner's own commands.
+The list has 60 tips in twelve themed pages, from getting around and tabs through to cmux commands and this banner's own commands.
 
 - **The list is a text file:** [cmux-tips.txt](cmux-tips.txt), one `shortcut | description` per line. Edit it freely; changes show on the next redraw.
-- **Shortcuts are cmux's defaults.** If you rebind one in `~/.config/cmux/cmux.json`, update its line in the file.
+- **Shortcuts are cmux's defaults,** checked against cmux's [published shortcut data](https://cmux.com/docs/keyboard-shortcuts). If you rebind one in `~/.config/cmux/cmux.json`, or cmux changes a default, update its line in the file.
 - **Where it appears:** on machines that have cmux, and not over SSH. In windows too narrow for the X-wing it becomes an ordinary section.
 
 ### Speed tests

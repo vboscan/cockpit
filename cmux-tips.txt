@@ -1,74 +1,92 @@
 # cmux-tips.txt — tips shown in the banner, five at a time, rotating.
 # One tip per line:  shortcut or command | what it does
 # Keep both sides short: the list sits under the X-wing, 34 characters wide.
-# Shortcuts are cmux's defaults (see "shortcuts" in ~/.config/cmux/cmux.json).
+#
+# Shortcuts are cmux's defaults, taken from its published shortcut data:
+#   https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-shortcuts.ts
+# (also at https://cmux.com/docs/keyboard-shortcuts). If you rebind one in
+# ~/.config/cmux/cmux.json, change its line here. In cmux a "surface" is a tab.
 
 # ── getting around ──
 cmd+shift+p        | Command palette
 cmd+p              | Go to workspace
-cmd+1..9           | Workspace by number
-ctrl+1..9          | Tab by number
+cmd+1..9           | Select workspace 1-9
+cmd+ctrl+] [       | Next/prev workspace
+cmd+[ ]            | Focus back / forward
+
+# ── tabs ──
+cmd+t              | New tab (surface)
 cmd+shift+] [      | Next / previous tab
+ctrl+1..9          | Select tab 1-9
+cmd+r              | Rename tab
+cmd+w              | Close tab
 
 # ── creating ──
 cmd+n              | New workspace
-cmd+t              | New tab in this pane
-cmd+d              | Split right
-cmd+shift+d        | Split down
+cmd+opt+n          | New browser workspace
 cmd+shift+n        | New window
+cmd+o              | Open folder
+cmd+ctrl+n         | New pane, auto layout
 
 # ── panes ──
-cmd+opt+←↑↓→       | Move between panes
-cmd+shift+enter    | Zoom or unzoom pane
-cmd+ctrl+=         | Equalize splits
-cmd+shift+h        | Flash current pane
-cmd+b              | Toggle sidebar
+cmd+d              | Split right
+cmd+shift+d        | Split down
+cmd+opt+←↑↓→       | Focus pane
+cmd+shift+enter    | Toggle pane zoom
+cmd+ctrl+shift+=   | Equalize splits
+
+# ── sidebars and workspaces ──
+cmd+b              | Toggle left sidebar
+cmd+opt+b          | Toggle right sidebar
+cmd+shift+e        | Focus right sidebar
+cmd+shift+r        | Rename workspace
+cmd+opt+e          | Workspace description
 
 # ── attention ──
-cmd+shift+u        | Jump to unread
-cmd+i              | Notifications
-cmd+shift+r        | Rename workspace
-cmd+r              | Rename tab
-cmd+opt+e          | Workspace notes
+cmd+i              | Show notifications
+cmd+shift+u        | Jump to latest unread
+cmd+opt+u          | Toggle unread
+cmd+shift+i        | Show agent inbox
+cmd+;              | Mark workspace done
 
 # ── finding ──
-cmd+f              | Find in terminal
+cmd+f              | Find
 cmd+g              | Find next
-cmd+shift+f        | Find in folder
-cmd+opt+b          | File explorer
-cmd+o              | Open folder
+cmd+shift+f        | Find in directory
+cmd+opt+f          | Global search
+cmd+e              | Find the selection
 
-# ── browser ──
+# ── browser and diff ──
 cmd+shift+l        | Open browser
-cmd+opt+d          | Browser split right
-cmd+l              | Browser address bar
-cmd+opt+i          | Browser dev tools
-cmd+shift+t        | Reopen closed browser
+cmd+opt+d          | Browser to right
+cmd+l              | Address bar
+cmd+opt+i          | Browser devtools
+cmd+ctrl+shift+d   | Open diff viewer
 
-# ── housekeeping ──
+# ── closing and reopening ──
 cmd+k              | Clear, banner stays
-cmd+w              | Close tab
 cmd+shift+w        | Close workspace
+cmd+ctrl+w         | Close window
+cmd+shift+t        | Reopen last closed
 cmd+shift+o        | Reopen last session
-cmd+shift+m        | Terminal copy mode
 
-# ── settings ──
+# ── view and settings ──
 cmd+,              | Settings
-cmd+shift+,        | Reload config
-cmd+ctrl+f         | Full screen
-cmux shortcuts     | List all shortcuts
-cmux themes list   | Browse themes
+cmd+shift+,        | Reload configuration
+cmd+ctrl+f         | Toggle full screen
+cmd+ctrl+=         | Bigger workspace text
+cmd+ctrl+c         | Toggle canvas layout
 
 # ── cmux commands ──
-cmux .             | Folder as workspace
+cmux .             | Folder → workspace
 cmux open FILE     | Open file or URL
 cmux diff          | View git changes
 cmux tree          | Show pane layout
-cmux notify        | Send a notification
+cmux notify        | Send notification
 
 # ── this banner ──
-cockpit refresh    | Refresh banner data
-cockpit speedtest  | Rerun speed tests
-hello              | Full banner, once
-hello --fresh      | Full banner, fresh
-vicks-deploy HOST  | Install on a remote
+cockpit refresh    | Refresh data
+cockpit speedtest  | Speed test now
+hello              | Full banner
+hello --fresh      | Banner, fresh
+vicks-deploy HOST  | Remote install
