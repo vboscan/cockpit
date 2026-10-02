@@ -85,8 +85,26 @@ reconcile() {
   done
 }
 
+# sweep_pills: remove sidebar SSH pills whose tmux pane no longer exists, which happens
+# when a terminal is closed while its ssh session is still open. Pill keys are
+# "ssh-<pane number>" (see the ssh wrapper in vicks.zsh).
+sweep_pills() {
+  command -v cmux >/dev/null 2>&1 || return 0
+  panes=" $(t list-panes -a -F '#{pane_id}' 2>/dev/null | tr -d '%' | tr '\n' ' ')"
+  t list-sessions -F '#{@vicks_ws}' 2>/dev/null | sort -u | while IFS= read -r ws; do
+    case $ws in ''|solo-*) continue ;; esac
+    CMUX_QUIET=1 cmux list-status --workspace "$ws" 2>/dev/null \
+      | sed -n 's/^\(ssh-[0-9][0-9]*\)=.*/\1/p' | while IFS= read -r key; do
+        case $panes in
+          *" ${key#ssh-} "*) ;;
+          *) CMUX_QUIET=1 cmux clear-status "$key" --workspace "$ws" >/dev/null 2>&1 ;;
+        esac
+      done
+  done
+}
+
 case $action in
-  reconcile) reconcile; exit 0 ;;
+  reconcile) reconcile; sweep_pills; exit 0 ;;
   here)
     [ -n "${TMUX:-}" ] && [ -n "${VICKS_IN_COCKPIT:-}" ] || { echo "This is not a pinned terminal, so there is no banner to move here."; exit 1; }
     ws=$(t display-message -p '#{@vicks_ws}'); me=$(t display-message -p '#{session_name}')

@@ -34,20 +34,60 @@ cockpit() { sh "$VICKS_HOME/cockpit.sh" "$@"; }
 # `vicks-deploy user@host` copies this setup to a remote machine and installs it there.
 # It is a real command: install.sh puts a launcher for deploy.sh in ~/.local/bin.
 
-# Inside the cockpit, `ssh` to a machine that vicks-deploy has set up hides the local
-# banner for the length of the session, so the remote machine's banner takes its place.
+# ── sidebar labels ───────────────────────────────────────────────────────
+# Tell tmux which project this pane is in. tmux.conf turns that into the terminal
+# title, and cmux shows the title as the workspace name in its left sidebar.
+#   in a git repository:  repo, repo/sub, or repo/…/leaf
+#   elsewhere:            ~ or the folder name
+if [[ -n ${TMUX:-} && -n ${VICKS_IN_COCKPIT:-} ]]; then
+  _vicks_label() {
+    local root proj rel
+    root=$(command git rev-parse --show-toplevel 2>/dev/null)
+    if [[ -n $root ]]; then
+      proj=${root:t}; rel=${${PWD#$root}#/}
+      if [[ $rel == */* ]]; then proj+="/…/${rel:t}"
+      elif [[ -n $rel ]]; then proj+="/$rel"; fi
+    elif [[ $PWD == $HOME ]]; then proj="~"
+    else proj=${PWD:t}
+    fi
+    tmux set-option -p @vicks_proj "$proj" 2>/dev/null
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook chpwd _vicks_label     # only when the folder changes, so the prompt stays fast
+  _vicks_label
+fi
+
+# `ssh` in a terminal marks the session where you can see it:
+#   - the host goes into the terminal title ("⇄ host · project")
+#   - in cmux, the workspace's sidebar row gets a red pill with the host name
+#   - to a machine that vicks-deploy has set up, the local banner is hidden for the
+#     length of the session, so the remote machine's banner takes its place
+# All of it is undone when ssh returns. `cockpit.sh reconcile` sweeps pills left behind
+# by a terminal that was closed mid-session.
 ssh() {
-  if [[ -n ${VICKS_IN_COCKPIT:-} && -n ${TMUX:-} && -t 1 && -r $HOME/.config/vicks/remotes ]]; then
-    local h; h=$(command ssh -G "$@" 2>/dev/null | awk '$1 == "hostname" {print $2; exit}')
-    if [[ -n $h ]] && grep -qxF -- "$h" "$HOME/.config/vicks/remotes"; then
-      local zoomed; zoomed=$(tmux display-message -p '#{window_zoomed_flag}' 2>/dev/null)
-      [[ $zoomed == 1 ]] || tmux resize-pane -Z 2>/dev/null
-      command ssh "$@"; local rc=$?
-      [[ $zoomed == 1 ]] || tmux resize-pane -Z 2>/dev/null
-      return $rc
+  if [[ ! -t 1 || ( -z ${TMUX:-} && -z ${CMUX_WORKSPACE_ID:-} ) ]]; then command ssh "$@"; return; fi
+  local h key="" unzoom=0
+  h=$(command ssh -G "$@" 2>/dev/null | awk '$1 == "hostname" {print $2; exit}')
+  if [[ -n $h ]]; then
+    [[ -n ${TMUX:-} ]] && tmux set-option -p @vicks_ssh "$h" 2>/dev/null
+    if [[ -n ${CMUX_WORKSPACE_ID:-} ]] && (( $+commands[cmux] )); then
+      key="ssh-${${TMUX_PANE:-$$}#%}"      # one pill per terminal pane
+      CMUX_QUIET=1 cmux set-status "$key" "$h" --icon server.rack --color "#ff3b30" --priority 90 \
+        --workspace "$CMUX_WORKSPACE_ID" >/dev/null 2>&1
+    fi
+    if [[ -n ${VICKS_IN_COCKPIT:-} && -n ${TMUX:-} && -r $HOME/.config/vicks/remotes ]] \
+       && grep -qxF -- "$h" "$HOME/.config/vicks/remotes" \
+       && [[ $(tmux display-message -p '#{window_zoomed_flag}' 2>/dev/null) != 1 ]]; then
+      tmux resize-pane -Z 2>/dev/null && unzoom=1
     fi
   fi
-  command ssh "$@"
+  command ssh "$@"; local rc=$?
+  if [[ -n $h ]]; then
+    (( unzoom )) && tmux resize-pane -Z 2>/dev/null
+    [[ -n ${TMUX:-} ]] && tmux set-option -pu @vicks_ssh 2>/dev/null
+    [[ -n $key ]] && ( CMUX_QUIET=1 cmux clear-status "$key" --workspace "$CMUX_WORKSPACE_ID" >/dev/null 2>&1 & )
+  fi
+  return $rc
 }
 
 # Cmd+K outside the cockpit: the terminal sends the key code \e[5000~ (see install.sh),

@@ -162,6 +162,23 @@ tmux does not start by itself in these cases, where a plain shell is used instea
 The banner is one extra pane. [cockpit.sh](cockpit.sh) reconciles whenever a terminal opens or closes: a workspace with no banner gets one in its most recently used terminal, and a workspace with two loses the older one.
 Because the banner is only a pane, moving it never touches a running shell.
 
+### Sidebar labels in cmux
+
+cmux lists your workspaces in its left sidebar. The setup labels each one so you can tell them apart at a glance.
+
+| What you see | Meaning |
+|---|---|
+| `segundo` | An idle shell in that project. In a git repository the project is the repository name |
+| `segundo/infra`, `segundo/…/image` | The same, one or more folders down |
+| `segundo · claude` | A program is running there |
+| `⇄ devbox-1 · segundo` | An SSH session is open in that terminal |
+| A red pill reading `devbox-1` | The workspace has an SSH session to that host. One pill per session |
+
+- **How:** tmux sets the terminal title, which cmux uses as the workspace name. The project part comes from a hook that runs when you change folder. The pill is set by the `ssh` wrapper through `cmux set-status` and cleared when `ssh` returns.
+- **Closed mid-session:** a pill left behind by a terminal that was closed while connected is swept away the next time any terminal opens or closes.
+- **Your own names win.** A workspace you rename with `cmd+shift+r` keeps your name.
+- **Limits:** only `ssh` typed at the prompt is tracked, not tools that call ssh themselves, such as git. The project name needs zsh; in bash the folder name is used.
+
 The layout adapts to the window width.
 
 | Width | Layout |
