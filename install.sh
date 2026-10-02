@@ -34,6 +34,11 @@ BASHRC="$HOME/.bashrc"
 
 if [ "$ACTION" = uninstall ]; then
   remove_block "$ZSHRC"; remove_block "$BASHRC"
+  for f in "$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty" \
+           "$HOME/Library/Application Support/com.mitchellh.ghostty/config" \
+           "$HOME/.config/ghostty/config.ghostty" "$HOME/.config/ghostty/config"; do
+    remove_block "$f"
+  done
   rm -f "$HOME/.local/bin/vicks-deploy"
   echo "Removed the vicks block from your shell startup files. Open a new terminal."
   exit 0
@@ -96,6 +101,28 @@ else
     fi
   fi
   command -v zsh >/dev/null 2>&1 || echo "Warning: zsh is still missing, and the banner cannot run without it."
+fi
+
+# ── 1c. Cmd+K in Ghostty-based terminals (Ghostty, cmux) ────────────────
+# By default Cmd+K wipes the terminal's own buffer, which tmux never hears about, so
+# the pinned view goes blank. Send a private key code instead; tmux.conf and the shell
+# entry points turn it into a proper clear.
+if [ "$(uname -s)" = Darwin ]; then
+  GDIR="$HOME/Library/Application Support/com.mitchellh.ghostty"
+  GCONF=""
+  for f in "$GDIR/config.ghostty" "$GDIR/config" "$HOME/.config/ghostty/config.ghostty" "$HOME/.config/ghostty/config"; do
+    [ -f "$f" ] && { GCONF="$f"; break; }
+  done
+  if [ -n "$GCONF" ]; then
+    remove_block "$GCONF"
+    {
+      echo "$BEGIN"
+      echo "# Cmd+K: send a key code that the pinned banner turns into a proper clear"
+      echo "keybind = super+k=csi:5000~"
+      echo "$END"
+    } >> "$GCONF"
+    echo "Cmd+K remapped in $GCONF. Reload the terminal's configuration or restart it to apply."
+  fi
 fi
 
 # ── 2. hook into the login shell ─────────────────────────────────────────

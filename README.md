@@ -14,11 +14,12 @@ cd vicks-prompt-hello-world
 ./install.sh
 ```
 
-The installer does three things:
+The installer does four things:
 
 1. Installs [Starship](https://starship.rs) with Homebrew if it is missing. It draws the prompt.
 2. Installs [tmux](https://github.com/tmux/tmux) and `iperf3` with Homebrew if they are missing. The cockpit needs tmux, and the Tailscale speed test needs iperf3.
 3. Adds one marked block to `~/.zshrc` that sources `vicks.zsh` from this folder.
+4. If a Ghostty or cmux configuration file exists, adds one marked block to it that makes Cmd+K work with the pinned banner.
 
 Remove the block again with `./install.sh --uninstall`.
 
@@ -115,6 +116,7 @@ The layout adapts to the window width.
 ### What changes inside the cockpit
 
 - **Scrolling:** the mouse wheel scrolls the shell history. The terminal's own scrollbar does not.
+- **Cmd+K:** clears the shell pane and its scrollback and leaves the banner alone. In Ghostty-based terminals (Ghostty, cmux) the installer remaps Cmd+K to send a private key code, because the default action wipes the terminal's own buffer behind tmux's back. Reload the terminal's configuration once after installing. In other terminals, use `clear && tmux clear-history`.
 - **Copying:** drag to select and the text is copied on release. Hold Option while dragging to use the terminal's own selection.
 
 ## Remote machines

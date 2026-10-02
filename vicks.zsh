@@ -49,6 +49,13 @@ ssh() {
   command ssh "$@"
 }
 
+# Cmd+K outside the cockpit: the terminal sends the key code \e[5000~ (see install.sh),
+# and this clears the screen and the terminal's own scrollback. Inside the cockpit
+# tmux catches the key code first (tmux.conf).
+_vicks_clear() { print -n '\e[H\e[2J\e[3J'; zle reset-prompt; }
+zle -N _vicks_clear
+bindkey '\e[5000~' _vicks_clear
+
 # ── prompt ───────────────────────────────────────────────────────────────
 if command -v starship >/dev/null 2>&1; then
   export STARSHIP_CONFIG="$VICKS_HOME/starship.toml"

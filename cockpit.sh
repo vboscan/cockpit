@@ -33,6 +33,7 @@ t() { tmux -L vicks -f "$VICKS_HOME/tmux.conf" "$@"; }
 
 # Shells inside the cockpit must not print their own banner or start a second cockpit.
 # tmux.conf sets these for a new server; this covers a server that is already running.
+t source-file "$VICKS_HOME/tmux.conf" 2>/dev/null   # refresh a server that is already running
 t set-environment -g VICKS_NO_BANNER 1 2>/dev/null
 t set-environment -g VICKS_IN_COCKPIT 1 2>/dev/null
 

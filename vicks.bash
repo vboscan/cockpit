@@ -23,6 +23,10 @@ case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) [ -d "$HOME/.local/bin" ] && PAT
 hello()   { zsh "$VICKS_HOME/banner.zsh" "$@"; }
 cockpit() { sh "$VICKS_HOME/cockpit.sh" "$@"; }
 
+# Cmd+K outside the cockpit: the terminal sends the key code \e[5000~ (see install.sh);
+# clear the screen and the terminal's own scrollback. Inside the cockpit tmux catches it.
+bind -x '"\e[5000~": "printf \"\\033[H\\033[2J\\033[3J\""' 2>/dev/null
+
 # ── prompt ───────────────────────────────────────────────────────────────
 # Starship draws the same prompt in bash. Without it, your own bash prompt is kept.
 if command -v starship >/dev/null 2>&1; then
