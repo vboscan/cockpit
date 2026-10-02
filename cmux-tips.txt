@@ -95,5 +95,5 @@ vicks-deploy HOST  | Remote install
 cockpit review     | Claude check now
 cockpit fix        | Fix with Claude
 cockpit fix 2      | Fix finding 2 only
-cockpit side       | Banner on the right
+cockpit side       | Banner on right
 hello --no-net     | Banner, no lookups
