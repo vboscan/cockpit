@@ -57,8 +57,9 @@ cmd+opt+f          | Global search
 cmd+e              | Find the selection
 
 # ── browser and diff ──
+# (cmd+opt+d, browser split right, is left out: macOS uses it to hide the Dock)
 cmd+shift+l        | Open browser
-cmd+opt+d          | Browser to right
+cmd+shift+opt+d    | Browser below
 cmd+l              | Address bar
 cmd+opt+i          | Browser devtools
 cmd+ctrl+shift+d   | Open diff viewer
