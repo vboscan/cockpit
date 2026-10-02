@@ -4,7 +4,7 @@ A Star Wars welcome banner, a live system dashboard and a colour-coded prompt fo
 
 Every new terminal shows an X-wing in its film colours, a caption in Star Wars yellow,
 a snapshot of the machine, and the route this machine takes to the internet.
-The `cockpit` command keeps the same information pinned on screen and updating.
+The banner stays pinned at the top of the window and keeps itself up to date while you work below it.
 
 ## Install
 
@@ -50,37 +50,44 @@ The update checks take several seconds, so they never block the terminal.
 The banner prints the last known result with its age, and starts a new check when that is stale.
 The first banner after installing says "checking…".
 
-## The cockpit: an always-on dashboard
+## The cockpit: the banner stays on screen
 
-```bash
-cockpit
-```
+Every new terminal opens in the cockpit.
+The banner is pinned at the top of the window and redraws itself every five seconds.
+Your shell runs underneath it, so commands and their output scroll below the banner.
 
-This opens tmux with the dashboard pinned in a pane above your shell.
-Commands scroll in the shell pane while the dashboard redraws every five seconds.
-The dashboard pane sizes itself to its content, up to 60% of the window.
-Typing `exit` in the shell closes the cockpit.
+- The banner pane sizes itself to its content, up to 60% of the window.
+- The banner is display-only. Clicking it hands focus straight back to the shell.
+- Typing `exit`, or closing the window, ends the cockpit and its banner.
+- It runs on tmux with its own server and [tmux.conf](tmux.conf), so a personal tmux setup is untouched.
 
-| Command or key | Effect |
+| Command or setting | Effect |
 |---|---|
-| `cockpit` | Dashboard on top, shell below |
-| `cockpit side` | Dashboard in a column on the right |
-| `r` with the dashboard pane focused | Refresh everything now |
-| `q` with the dashboard pane focused | Close the dashboard pane |
-| `export VICKS_AUTO_COCKPIT=1` | Every new terminal opens straight into the cockpit |
-| `export VICKS_DASH_ART=0` | Leave out the X-wing for a shorter dashboard |
+| `cockpit refresh` | Look everything up again right now |
+| `hello` | Print the full, long-form banner once in the shell |
+| `export VICKS_COCKPIT_LAYOUT=side` | Pin the banner in a right-hand column instead of on top |
+| `export VICKS_DASH_ART=0` | Leave out the X-wing for a shorter banner |
+| `export VICKS_AUTO_COCKPIT=0` | Go back to a one-off banner that scrolls away. `cockpit` still starts it by hand |
+
+The cockpit does not start by itself in these cases, where a plain shell with the one-off banner is used instead:
+
+- inside tmux, VS Code, JetBrains or Emacs terminals
+- windows smaller than 80 columns by 30 rows
+- if tmux fails to start, so a broken setup can never lock you out of the terminal
 
 The layout adapts to the window width.
 
 | Width | Layout |
 |---|---|
-| 173 columns or more | X-wing plus two columns of data, about 24 rows |
-| 126 to 172 columns | Two columns of data, no art, about 24 rows |
+| 173 columns or more | X-wing plus two or three columns of data, 20 to 24 rows |
+| 153 to 172 columns | X-wing plus two slightly narrower columns, about 24 rows |
+| 126 to 152 columns | Two columns of data, no art |
 | Narrower | One column |
 
-The cockpit runs its own tmux server with [tmux.conf](tmux.conf), so a personal tmux setup is untouched.
-The mouse wheel scrolls the shell history and dragging selects text and copies it.
-Hold Option while dragging to use the terminal's own selection instead.
+### What changes inside the cockpit
+
+- **Scrolling:** the mouse wheel scrolls the shell history. The terminal's own scrollbar does not.
+- **Copying:** drag to select and the text is copied on release. Hold Option while dragging to use the terminal's own selection.
 
 ## Commands and settings
 

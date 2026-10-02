@@ -58,6 +58,7 @@ while (( $# )); do
   shift
 done
 local compact=$dash   # dashboard uses shorter lines
+local bar_w=20; (( compact )) && bar_w=14   # usage bar width
 local async=$dash     # dashboard never blocks on a lookup
 
 local here=${0:A:h}
@@ -84,7 +85,7 @@ section() {
 }
 # bar <pct> [width]  -> coloured usage bar
 bar() {
-  local pct=${1%.*} width=${2:-20}; (( pct < 0 )) && pct=0; (( pct > 100 )) && pct=100
+  local pct=${1%.*} width=${2:-$bar_w}; (( pct < 0 )) && pct=0; (( pct > 100 )) && pct=100
   local filled=$(( pct * width / 100 )) col=$C_OK
   (( pct >= 70 )) && col=$C_WARN
   (( pct >= 90 )) && col=$C_BAD
@@ -258,7 +259,8 @@ blk_art() {
 
 blk_system() {
   section "SYSTEM"
-  kv "Host" "$(hostname -s) ${C_D}($(hostname))"
+  if (( compact )); then kv "Host" "$(hostname -s)"
+  else kv "Host" "$(hostname -s) ${C_D}($(hostname))"; fi
   (( is_mac && ! compact )) && kv "Name" "$computer_name"
   kv "OS" "$os"
   if (( is_mac )); then
@@ -267,7 +269,8 @@ blk_system() {
     (( $#u > 1 && ! compact )) && kv "" "$u[2]"
   fi
   kv "Kernel" "$kernel"
-  kv "Hardware" "${model:-?} · ${chip:-?} · ${cpus} cores · ${mem_total} GB RAM"
+  if (( compact )); then kv "Hardware" "${chip:-?} · ${cpus} cores · ${mem_total} GB · ${model:-?}"
+  else kv "Hardware" "${model:-?} · ${chip:-?} · ${cpus} cores · ${mem_total} GB RAM"; fi
   (( $+commands[brew] )) && kv "Homebrew" "$(upd_brew)"
   if (( compact )); then
     kv "Date" "$(date '+%a %d %b %Y, %H:%M:%S %Z')"
@@ -418,12 +421,14 @@ blk_tailscale() {
   local -i total=0 online=0 shown=0 max=12
   (( compact )) && max=6
   local -a peers
+  local nw=18 ow=8; (( compact )) && { nw=16; ow=6; }   # name and OS column widths
   for r in $rows; do
     IFS='|' read -r kind f1 f2 f3 f4 f5 f6 f7 <<< "$r"
     if [[ $kind == S ]]; then
       if [[ $f1 == Running ]]; then kv "Status" "${C_OK}● connected${C_D} · tailnet ${C_V}${f2}"
       else kv "Status" "${C_WARN}○ ${f1}"; fi
-      kv "This device" "${C_V}${f3}  ${C_INFO}${f4}${C_D}${f5:+  relay $f5}"
+      local relay=""; (( compact )) || relay="${f5:+  relay $f5}"
+      kv "This device" "${C_V}${f3}  ${C_INFO}${f4}${C_D}${relay}"
       [[ -n $f6 ]] && kv "Exit node" "${C_WARN}${f6}"
       (( f7 > 0 )) && kv "Health" "${C_WARN}${f7} warning(s) · run tailscale status"
     else
@@ -433,9 +438,9 @@ blk_tailscale() {
       (( shown++ ))
       local exit_tag=""; [[ $f7 == true ]] && exit_tag=" ${C_D}(exit node)"
       if [[ $f4 == true ]]; then
-        peers+=("$(printf "  %s● %s%-18s %s%-16s %s%-8s %s%s%s" "$C_OK" "$C_V" "$f1" "$C_INFO" "$f2" "$C_D" "$f3" "$C_OK" "$f5" "$exit_tag")")
+        peers+=("$(printf "  %s● %s%-${nw}s %s%-15s %s%-${ow}s %s%s%s" "$C_OK" "$C_V" "$f1" "$C_INFO" "$f2" "$C_D" "$f3" "$C_OK" "$f5" "$exit_tag")")
       else
-        peers+=("$(printf "  %s○ %-18s %-16s %-8s seen %s%s" "$C_D" "$f1" "$f2" "$f3" "$f6" "$exit_tag")")
+        peers+=("$(printf "  %s○ %-${nw}s %-15s %-${ow}s seen %s%s" "$C_D" "$f1" "$f2" "$f3" "$f6" "$exit_tag")")
       fi
     fi
   done
@@ -467,9 +472,9 @@ blk_route() {
     cls=$(ipclass "$addr")
     case $cls in
       private)    col=$C_INFO
-        if [[ $addr == ${gw:-none} ]]; then name="your router (default gateway)"
-        else name="private address inside the ISP"; fi ;;
-      cgnat)      col=$C_WARN; name="ISP carrier-grade NAT (100.64/10)" ;;
+        if [[ $addr == ${gw:-none} ]]; then name="your router (default gateway)"; (( compact )) && name="your router"
+        else name="private address inside the ISP"; (( compact )) && name="private, inside the ISP"; fi ;;
+      cgnat)      col=$C_WARN; name="ISP carrier-grade NAT (100.64/10)"; (( compact )) && name="ISP carrier-grade NAT" ;;
       link-local) col=$C_D;    name="link-local" ;;
       *)          col=$C_OK
         if [[ $addr == $target ]]; then name="destination"
@@ -576,9 +581,11 @@ render_dash() {
     # one column: art on top when it fits, then every section
     (( want_art && cols >= artw && side )) && secs=("$s_art" "${secs[@]}")
     flow 1 "${secs[@]}"; C=("${reply[@]}"); Wd=($cols)
-  elif (( want_art && cols >= artw + 2 * (colw + gap) )); then
-    # art on the left, sections balanced over the remaining columns
+  elif (( want_art && cols >= artw + 2 * (52 + gap) )); then
+    # art on the left, sections balanced over the remaining columns;
+    # between 153 and 172 columns the two data columns shrink a little to make room
     local n=$(( (cols - artw) / (colw + gap) )); (( n > 3 )) && n=3
+    if (( n < 2 )); then n=2; colw=$(( (cols - artw - 2 * gap) / 2 )); fi
     flow $n "${secs[@]}"
     C=("$s_art" "${reply[@]}"); Wd=($artw); repeat $#reply Wd+=($colw)
   else
