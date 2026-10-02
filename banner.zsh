@@ -3,7 +3,9 @@
 #
 # Usage:  banner.zsh            one-shot banner (what a new terminal shows)
 #         banner.zsh --fresh    ignore every cache and look everything up again
-#         banner.zsh --no-net   skip public IP lookup and traceroute
+#         banner.zsh --no-net   skip public IP lookup, traceroute and speed tests
+#         banner.zsh --new-window   also start the once-per-window speed tests in the background
+#         banner.zsh --speedtest    run the speed tests now and print the results
 #         banner.zsh --dash     live dashboard that redraws in place (used by `cockpit`)
 #                               keys: r = refresh everything now, q = quit
 #           --side              dashboard is in a narrow side pane (single column)
@@ -22,6 +24,11 @@
 #         VICKS_TRACE_STOP=owner     where the shown route ends: owner (first hop in the target's
 #                                    own network, Google for 8.8.8.8), public (first public address), full
 #         VICKS_TOP_N=5              how many apps the TOP APPS lists show
+#         VICKS_SPEEDTEST=0          never run speed tests (1 = also run them on remote machines)
+#         VICKS_SPEEDTEST_SECONDS=8  time cap for each direction of the internet test
+#         VICKS_SPEEDTEST_MIN_AGE=300  reuse a result younger than this instead of retesting
+#         VICKS_IPERF_HOST=user@host   Tailscale peer for the iperf3 test (none = no test)
+#       These can also live in ~/.config/vicks/config as plain VAR=value lines.
 
 emulate -L zsh
 setopt extendedglob no_nomatch pipe_fail
@@ -52,7 +59,7 @@ local C_V=$'\e[38;5;252m'   # values
 local C_OK=$'\e[38;5;82m' C_WARN=$'\e[38;5;214m' C_BAD=$'\e[38;5;196m' C_INFO=$'\e[38;5;75m'
 
 # ---------------------------------------------------------------- options ---
-local fresh=0 nonet=0 dash=0 once=0 side=0 force_cols=0
+local fresh=0 nonet=0 dash=0 once=0 side=0 force_cols=0 new_window=0 speed_now=0
 while (( $# )); do
   case $1 in
     --fresh)  fresh=1 ;;
@@ -60,6 +67,8 @@ while (( $# )); do
     --dash)   dash=1 ;;
     --once)   once=1 ;;
     --side)   side=1 ;;
+    --new-window) new_window=1 ;;   # a terminal window just opened: run the once-per-window speed tests
+    --speedtest)  speed_now=1 ;;    # run the speed tests now and print the results
     --cols)   force_cols=$2; shift ;;
   esac
   shift
@@ -101,6 +110,10 @@ mkdir -p "$cache_dir" 2>/dev/null
 
 local is_mac=0
 [[ $OSTYPE == darwin* ]] && is_mac=1
+
+# Optional settings file, read by every banner and dashboard: plain VAR=value lines,
+# for example VICKS_IPERF_HOST=dev@devbox-1
+[[ -r ${XDG_CONFIG_HOME:-$HOME/.config}/vicks/config ]] && source "${XDG_CONFIG_HOME:-$HOME/.config}/vicks/config"
 
 # ---------------------------------------------------------------- helpers ---
 # kv "label" "value"  -> aligned key/value line
@@ -178,6 +191,95 @@ vtrunc() {
     fi
   done
   REPLY=$out$C_RESET
+}
+
+# ---------------------------------------------------------- speed tests ---
+# Run once per new terminal window, in the background, never on a redraw.
+#   internet:  parallel downloads and uploads against speed.cloudflare.com, each
+#              capped at VICKS_SPEEDTEST_SECONDS so a slow link is not tied up for minutes
+#   tailscale: iperf3 to VICKS_IPERF_HOST (user@host). A one-shot iperf3 server is
+#              started there over SSH for each direction, so nothing stays running.
+# Results land in the cache as "OK <down> <up> [peer]" or "ERR <reason>".
+run_speed_inet() {
+  local secs=${VICKS_SPEEDTEST_SECONDS:-8} down up upf=$cache_dir/up.$$.bin
+  down=$(curl -s -Z -m $secs -o /dev/null -w '%{speed_download} %{http_code}\n' \
+           'https://speed.cloudflare.com/__down?bytes=90000000&n=[1-8]' 2>/dev/null \
+         | awk '$2 == 200 {s += $1} END {printf "%.0f", s * 8 / 1000000}')
+  head -c 50000000 /dev/zero > "$upf"
+  up=$(curl -s -Z -m $secs -o /dev/null -w '%{speed_upload} %{http_code}\n' --data-binary @"$upf" \
+         'https://speed.cloudflare.com/__up?n=[1-4]' 2>/dev/null \
+       | awk '$2 < 400 {s += $1} END {printf "%.0f", s * 8 / 1000000}')
+  rm -f "$upf"
+  if (( ${down:-0} == 0 && ${up:-0} == 0 )); then print "ERR speed test failed (offline or blocked)"
+  else print "OK ${down:-0} ${up:-0}"; fi
+}
+run_speed_ts() {
+  local host=${VICKS_IPERF_HOST:-} port=${VICKS_IPERF_PORT:-5201} secs=${VICKS_IPERF_SECONDS:-5}
+  local peer=${host#*@} target rc up down
+  (( $+commands[iperf3] )) || { print "ERR iperf3 is not installed on this machine"; return; }
+  (( $+commands[jq] ))     || { print "ERR jq is not installed on this machine"; return; }
+  target=$(command ssh -G "$host" 2>/dev/null | awk '$1 == "hostname" {print $2; exit}'); : ${target:=$peer}
+  # one-shot server on the peer: serves a single test, and gives up after 30s if none arrives
+  start_server() {
+    command ssh -o BatchMode=yes -o ConnectTimeout=6 "$host" \
+      "command -v iperf3 >/dev/null 2>&1 || exit 42
+       if command -v timeout >/dev/null 2>&1; then nohup timeout 30 iperf3 -s -1 -p $port >/dev/null 2>&1 </dev/null &
+       else nohup iperf3 -s -1 -p $port >/dev/null 2>&1 </dev/null & fi" </dev/null >/dev/null 2>&1
+  }
+  mbps() { jq -r '.end.sum_received.bits_per_second // 0' 2>/dev/null | awk '{printf "%.0f", $1 / 1000000}'; }
+  start_server; rc=$?
+  if (( rc == 42 )); then print "ERR iperf3 is not installed on $peer"; return; fi
+  if (( rc != 0 )); then print "ERR cannot reach $peer over SSH"; return; fi
+  sleep 1
+  up=$(iperf3 -c "$target" -p $port -t $secs -J 2>/dev/null | mbps)
+  start_server; sleep 1
+  down=$(iperf3 -c "$target" -p $port -t $secs -R -J 2>/dev/null | mbps)
+  if (( ${down:-0} == 0 && ${up:-0} == 0 )); then print "ERR iperf3 test to $peer failed"
+  else print "OK ${down:-0} ${up:-0} $peer"; fi
+}
+# which tests apply here: remote machines only test when asked to (VICKS_SPEEDTEST=1)
+speed_tests() {
+  reply=()
+  (( nonet )) && return
+  local on=${VICKS_SPEEDTEST:-}
+  [[ -z $on ]] && { (( is_remote )) && on=0 || on=1; }
+  [[ $on == 0 ]] && return
+  reply=(inet)
+  [[ -n ${VICKS_IPERF_HOST:-} ]] && reply+=(ts)
+}
+# speedtests_start <force> -> run the tests one after the other in the background.
+# Skipped when a test is already running, or when the last result is younger than
+# VICKS_SPEEDTEST_MIN_AGE seconds (so opening several windows in a row tests once).
+speedtests_start() {
+  local force=$1 min_age=${VICKS_SPEEDTEST_MIN_AGE:-300} name f
+  local -a todo
+  speed_tests
+  for name in $reply; do
+    f=$cache_dir/speed_$name
+    mtime "$f.lock"; (( EPOCHSECONDS - REPLY < 180 )) && continue
+    if (( ! force )); then mtime "$f"; (( EPOCHSECONDS - REPLY < min_age )) && continue; fi
+    : > "$f.lock"; todo+=($name)
+  done
+  (( $#todo )) || return 0
+  ( for name in $todo; do
+      f=$cache_dir/speed_$name
+      run_speed_$name > "$f.tmp" 2>/dev/null; mv -f "$f.tmp" "$f"; rm -f "$f.lock"
+    done ) >/dev/null 2>&1 </dev/null &!
+}
+# speed_line <inet|ts> -> the value for a "Speed" row, or nothing when there is nothing to say
+speed_line() {
+  local f=$cache_dir/speed_$1 running=0 res="" when
+  mtime "$f.lock"; (( EPOCHSECONDS - REPLY < 180 )) && running=1
+  [[ -s $f ]] && res="$(<$f)"
+  if [[ -z $res ]]; then (( running )) && print -r -- "${C_D}testing…"; return; fi
+  mtime "$f"; ago $(( EPOCHSECONDS - REPLY )); when=$REPLY
+  (( running )) && when="retesting…"
+  local -a parts=(${=res})
+  if [[ $parts[1] == OK ]]; then
+    print -r -- "${C_OK}↓ ${parts[2]} Mbps  ${C_INFO}↑ ${parts[3]} Mbps${C_D}${parts[4]:+ · iperf3 to ${parts[4]}} · ${when}"
+  else
+    print -r -- "${C_WARN}${res#ERR }${C_D} · ${when}"
+  fi
 }
 
 # ------------------------------------------------------ static facts ---
@@ -507,6 +609,8 @@ blk_network() {
     kv "Public IP" "${C_INFO}${pip:-looking up… / offline}${C_RESET}"
   fi
   [[ -n $private_ip && -n $pip && $private_ip != $pip ]] && kv "NAT" "yes ${C_D}(${private_ip} → ${pip})"
+  local sp; sp="$(speed_line inet)"
+  [[ -n $sp ]] && kv "Speed" "$sp"
 }
 
 # Tailscale: this device, exit node, and every peer in the tailnet.
@@ -557,6 +661,10 @@ blk_tailscale() {
     fi
   done
   kv "Peers" "${C_OK}${online} online${C_D} of ${total}"
+  if [[ -n ${VICKS_IPERF_HOST:-} ]]; then
+    local sp; sp="$(speed_line ts)"
+    [[ -n $sp ]] && kv "Speed" "$sp"
+  fi
   (( $#peers )) && print -rl -- "${peers[@]/%/$C_RESET}"
   (( total > shown )) && print -r -- "  ${C_D}… and $(( total - shown )) more · run tailscale status${C_RESET}"
 }
@@ -643,6 +751,25 @@ blk_route() {
     printf "  %s%s · traced %s · run %shello --fresh%s to refresh%s\n" "$C_D" "$summary" "$REPLY" "$C_V" "$C_D" "$C_RESET"
   fi
 }
+
+# ------------------------------------------------- speed test on demand ---
+if (( speed_now )); then
+  speedtests_start 1
+  speed_tests
+  print "Testing: ${(j:, :)reply:-nothing to test}. This takes up to half a minute."
+  local name waited=0
+  for name in $reply; do
+    while [[ -f $cache_dir/speed_$name.lock ]] && (( waited++ < 90 )); do sleep 1; done
+    case $name in
+      inet) kv "Internet"  "$(speed_line inet)" ;;
+      ts)   kv "Tailscale" "$(speed_line ts)" ;;
+    esac
+  done
+  return 0 2>/dev/null || exit 0
+fi
+
+# a terminal window has just opened: start the once-per-window speed tests
+(( new_window && ! once )) && speedtests_start 0
 
 # ---------------------------------------------------- one-shot banner ---
 if (( ! dash )); then

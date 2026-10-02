@@ -53,5 +53,5 @@ if _vicks_wants_cockpit; then
   echo "The cockpit did not start. This is a normal shell. Set VICKS_AUTO_COCKPIT=0 in ~/.bashrc to stop trying."
   unset _vicks_t0
 elif [ -z "${VICKS_NO_BANNER:-}" ] && [ -t 1 ]; then
-  hello ${VICKS_NO_NET:+--no-net}
+  hello --new-window ${VICKS_NO_NET:+--no-net}
 fi

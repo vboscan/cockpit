@@ -17,7 +17,7 @@ cd vicks-prompt-hello-world
 The installer does three things:
 
 1. Installs [Starship](https://starship.rs) with Homebrew if it is missing. It draws the prompt.
-2. Installs [tmux](https://github.com/tmux/tmux) with Homebrew if it is missing. The cockpit needs it.
+2. Installs [tmux](https://github.com/tmux/tmux) and `iperf3` with Homebrew if they are missing. The cockpit needs tmux, and the Tailscale speed test needs iperf3.
 3. Adds one marked block to `~/.zshrc` that sources `vicks.zsh` from this folder.
 
 Remove the block again with `./install.sh --uninstall`.
@@ -31,8 +31,8 @@ Remove the block again with `./install.sh --uninstall`.
 | Who is here | Every logged-in user with session count, remote logins, your last login |
 | Resources | CPU, memory and disk bars, load averages, battery, process count |
 | Top apps | The five biggest consumers of CPU and the five biggest consumers of memory, side by side |
-| Network | Interface and Wi-Fi name, private IP, gateway, other IPs, DNS, public IP, ISP, NAT |
-| Tailscale | Connection state, tailnet, this device, exit node, every peer with online state |
+| Network | Interface and Wi-Fi name, private IP, gateway, other IPs, DNS, public IP, ISP, NAT, internet speed |
+| Tailscale | Connection state, tailnet, this device, exit node, every peer with online state, speed to one peer |
 | Route to internet | Each hop from this machine until the route reaches Google's network, with address kind, latency and network owner |
 
 The public IP comes from a lookup at `ipinfo.io`, so it is correct behind NAT.
@@ -46,6 +46,22 @@ The top apps are grouped by app, so an app's helper processes count as one entry
 Their CPU figures are a share of the whole machine, on the same scale as the CPU bar.
 WebKit web pages are the pages open in Safari and in other apps that embed WebKit.
 
+### Speed tests
+
+Two speed tests run once when a new terminal window opens, in the background.
+They never run on a redraw, and their results appear in the banner when they finish.
+
+| Test | How |
+|---|---|
+| Internet | Eight parallel downloads and four parallel uploads against `speed.cloudflare.com`, each direction capped at 8 seconds |
+| Tailscale | `iperf3` to one peer, 5 seconds in each direction |
+
+- **Data use:** the internet test moves roughly 100 MB per run on a 60 Mbps line, and more on faster lines, up to about 900 MB.
+- **Several windows in a row:** a result younger than five minutes is reused, and a test already running is not started twice.
+- **On demand:** `cockpit speedtest` runs both again right now.
+- **Remote machines:** a machine reached over SSH does not test by default. Set `VICKS_SPEEDTEST=1` there to turn it on.
+- **Tailscale peer:** name it in `~/.config/vicks/config` as `VICKS_IPERF_HOST=user@host`. Both ends need `iperf3`, and you need SSH access to the peer. A one-shot `iperf3` server is started there for each direction and exits afterwards, so nothing is left running.
+
 ### How fresh the data is
 
 | Data | Refresh |
@@ -54,6 +70,7 @@ WebKit web pages are the pages open in Safari and in other apps that embed WebKi
 | Tailscale | Every 20 seconds |
 | Public IP and traceroute | Every 10 minutes in the banner, every 2 minutes in the cockpit |
 | macOS and Homebrew updates | Every 6 hours, checked in the background |
+| Speed tests | Once per new terminal window |
 
 The update checks take several seconds, so they never block the terminal.
 The banner prints the last known result with its age, and starts a new check when that is stale.
@@ -73,6 +90,7 @@ Your shell runs underneath it, so commands and their output scroll below the ban
 | Command or setting | Effect |
 |---|---|
 | `cockpit refresh` | Look everything up again right now |
+| `cockpit speedtest` | Run the internet and Tailscale speed tests again right now |
 | `hello` | Print the full, long-form banner once in the shell |
 | `export VICKS_COCKPIT_LAYOUT=side` | Pin the banner in a right-hand column instead of on top |
 | `export VICKS_DASH_ART=0` | Leave out the X-wing for a shorter banner |
@@ -142,10 +160,15 @@ On Linux the banner uses `ip`, `free` and `/proc` in place of the macOS tools, a
 | `VICKS_TRACE_TARGET=8.8.8.8` | Where the traceroute is aimed |
 | `VICKS_TRACE_STOP=owner` | Where the shown route ends. `owner` is the first hop in the target's own network, `public` the first public address, `full` every hop |
 | `VICKS_TOP_N=5` | How many apps each top list shows |
+| `VICKS_SPEEDTEST=0` | Never run speed tests. `1` also runs them on remote machines |
+| `VICKS_SPEEDTEST_SECONDS=8` | Time cap for each direction of the internet test |
+| `VICKS_SPEEDTEST_MIN_AGE=300` | Reuse a result younger than this many seconds |
+| `VICKS_IPERF_HOST=user@host` | Tailscale peer for the `iperf3` test. Unset means no Tailscale test |
 | `VICKS_ART=/path/to/file` | Use different art |
 | `VICKS_REMOTE_ART=tie` | Ship shown when reached over SSH: `tie`, `deathstar`, `xwing` or a file path |
 
-Set the variables in `~/.zshrc` above the vicks block.
+Set the variables in `~/.zshrc` above the vicks block, or as plain `VAR=value` lines in `~/.config/vicks/config`.
+The config file is read on every redraw, so it also reaches a banner that is already pinned.
 
 ## The art
 

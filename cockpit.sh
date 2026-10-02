@@ -5,10 +5,15 @@
 #   cockpit.sh           banner on top, shell below
 #   cockpit.sh side      banner in a right-hand column
 #   cockpit.sh refresh   look everything up again right now
+#   cockpit.sh speedtest run the speed tests again right now
 
 VICKS_HOME=${VICKS_HOME:-$(cd "$(dirname "$0")" && pwd)}
 layout=${1:-${VICKS_COCKPIT_LAYOUT:-top}}
 
+if [ "$layout" = speedtest ]; then
+  # run the internet and Tailscale speed tests again right now
+  exec zsh "$VICKS_HOME/banner.zsh" --speedtest
+fi
 if [ "$layout" = refresh ]; then
   # refill the shared cache; every open dashboard shows it on its next redraw
   zsh "$VICKS_HOME/banner.zsh" --fresh >/dev/null 2>&1
@@ -22,7 +27,8 @@ if [ -n "${TMUX:-}" ]; then
   echo "Already inside the cockpit (or another tmux). Try: cockpit refresh"; exit 1
 fi
 
-dash="zsh '$VICKS_HOME/banner.zsh' --dash"
+# --new-window: the dashboard starts the once-per-window speed tests
+dash="zsh '$VICKS_HOME/banner.zsh' --dash --new-window"
 t() { tmux -L vicks -f "$VICKS_HOME/tmux.conf" "$@"; }
 
 # Shells inside the cockpit must not print their own banner or start a second cockpit.

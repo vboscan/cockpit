@@ -52,7 +52,7 @@ confirm() {   # confirm "question" -> 0 for yes
 # starship draws the prompt.
 if [ "$(uname -s)" = Darwin ]; then
   if command -v brew >/dev/null 2>&1; then
-    for tool in starship tmux; do
+    for tool in starship tmux iperf3; do
       command -v "$tool" >/dev/null 2>&1 || { echo "Installing $tool with Homebrew..."; brew install "$tool"; }
     done
   else
