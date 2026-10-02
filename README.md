@@ -134,8 +134,8 @@ Your shell runs underneath it, so commands and their output scroll below the ban
 - **One banner per workspace.** The first roomy terminal in a workspace gets it. Further splits and tabs in that workspace are plain shells, so they keep their full height.
 - **It follows the workspace.** When the terminal holding the banner closes, the banner appears in the most recently used terminal of that workspace. The shell there is not disturbed.
 - **`cockpit here`** moves the banner into the terminal you are in.
-- **Small windows** under 80 columns by 30 rows run in tmux too, but are never given the banner.
-- **Outside cmux** there are no workspaces, so every terminal has its own banner.
+- **Small windows** under 80 columns by 30 rows run in tmux too, inside cmux, but are never given the banner.
+- **Outside cmux** there are no workspaces, so every roomy terminal has its own banner. Smaller ones stay plain shells and print the one-off banner.
 - The banner pane sizes itself to its content, up to 60% of the window, and is display-only: clicking it hands focus straight back to the shell.
 - Typing `exit`, or closing the window, ends that terminal's tmux session.
 - It runs on its own tmux server with [tmux.conf](tmux.conf), so a personal tmux setup is untouched.
@@ -153,7 +153,8 @@ Your shell runs underneath it, so commands and their output scroll below the ban
 
 tmux does not start by itself in these cases, where a plain shell is used instead:
 
-- inside another tmux, and in VS Code, JetBrains or Emacs terminals
+- inside another tmux, and in VS Code, JetBrains, Emacs and Claude desktop app terminals
+- outside cmux, in windows smaller than 80 columns by 30 rows
 - for `zsh -c` and other non-interactive shells
 - if tmux fails to start, so a broken setup can never lock you out of the terminal
 

@@ -66,14 +66,21 @@ else
 fi
 
 # ── cockpit or banner ────────────────────────────────────────────────────
-# The cockpit starts by itself in real terminal windows of any size: not inside tmux,
-# not for `zsh -c`, not in IDE terminal panels, and not when switched off. Whether a
-# terminal also shows the banner is decided by `cockpit.sh reconcile`, not here.
+# The cockpit (tmux) starts by itself in real terminal windows: not inside tmux, not
+# for `zsh -c`, not in IDE or app terminal panels, and not when switched off.
+#   - inside cmux: every terminal, whatever its size, so the banner can move between
+#     the terminals of a workspace. `cockpit.sh reconcile` decides which one shows it.
+#   - anywhere else: only roomy windows (80x30 or more), as before. That keeps tmux out
+#     of small embedded terminals that this file cannot recognise by name.
 _vicks_wants_cockpit() {
   [[ ${VICKS_AUTO_COCKPIT:-1} != 0 && -z ${VICKS_PLAIN:-} ]] || return 1
   [[ -t 0 && -t 1 ]] || return 1
   [[ -z ${TMUX:-} && -z ${VICKS_IN_COCKPIT:-} && -z ${ZSH_EXECUTION_STRING:-} ]] || return 1
   [[ ${TERM_PROGRAM:-} != vscode && -z ${INSIDE_EMACS:-} && ${TERMINAL_EMULATOR:-} != JetBrains* ]] || return 1
+  [[ ${__CFBundleIdentifier:-} != com.anthropic.claudefordesktop ]] || return 1   # the Claude app's terminal panel
+  if [[ -z ${CMUX_WORKSPACE_ID:-} ]]; then
+    (( ${LINES:-0} >= 30 && ${COLUMNS:-0} >= 80 )) || return 1
+  fi
   command -v tmux >/dev/null 2>&1
 }
 

@@ -46,6 +46,13 @@ _vicks_wants_cockpit() {
   [ -z "${TMUX:-}" ] && [ -z "${VICKS_IN_COCKPIT:-}" ] && [ -z "${BASH_EXECUTION_STRING:-}" ] || return 1
   [ "${TERM_PROGRAM:-}" != vscode ] && [ -z "${INSIDE_EMACS:-}" ] || return 1
   case ${TERMINAL_EMULATOR:-} in JetBrains*) return 1 ;; esac
+  [ "${__CFBundleIdentifier:-}" != com.anthropic.claudefordesktop ] || return 1   # the Claude app's terminal panel
+  # inside cmux every terminal runs in tmux; anywhere else only roomy windows do, as before
+  if [ -z "${CMUX_WORKSPACE_ID:-}" ]; then
+    local rows cols
+    read -r rows cols < <(stty size 2>/dev/null)   # bash may not know the size this early
+    [ "${rows:-0}" -ge 30 ] && [ "${cols:-0}" -ge 80 ] || return 1
+  fi
   command -v tmux >/dev/null 2>&1
 }
 
