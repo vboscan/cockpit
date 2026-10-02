@@ -5,7 +5,7 @@
 #
 # Commands and settings are the same as in vicks.zsh:
 #   hello, cockpit, cockpit refresh
-#   VICKS_AUTO_COCKPIT=0, VICKS_COCKPIT_LAYOUT=side, VICKS_REMOTE_ART=deathstar,
+#   VICKS_PLAIN=1, VICKS_AUTO_COCKPIT=0, VICKS_COCKPIT_LAYOUT=side, VICKS_REMOTE_ART=deathstar,
 #   VICKS_NO_BANNER=1, VICKS_NO_NET=1   (export them in ~/.bashrc above the vicks block)
 
 case $- in *i*) ;; *) return 0 ;; esac
@@ -41,15 +41,11 @@ if ! command -v zsh >/dev/null 2>&1; then
 fi
 
 _vicks_wants_cockpit() {
-  [ "${VICKS_AUTO_COCKPIT:-1}" != 0 ] || return 1
+  [ "${VICKS_AUTO_COCKPIT:-1}" != 0 ] && [ -z "${VICKS_PLAIN:-}" ] || return 1
   [ -t 0 ] && [ -t 1 ] || return 1
   [ -z "${TMUX:-}" ] && [ -z "${VICKS_IN_COCKPIT:-}" ] && [ -z "${BASH_EXECUTION_STRING:-}" ] || return 1
   [ "${TERM_PROGRAM:-}" != vscode ] && [ -z "${INSIDE_EMACS:-}" ] || return 1
   case ${TERMINAL_EMULATOR:-} in JetBrains*) return 1 ;; esac
-  # bash may not know the window size this early, so ask the terminal
-  local rows cols
-  read -r rows cols < <(stty size 2>/dev/null)
-  [ "${rows:-0}" -ge 30 ] && [ "${cols:-0}" -ge 80 ] || return 1
   command -v tmux >/dev/null 2>&1
 }
 
@@ -61,6 +57,6 @@ if _vicks_wants_cockpit; then
   # tmux failed or ended at once: never lock the user out, fall back to a plain shell
   echo "The cockpit did not start. This is a normal shell. Set VICKS_AUTO_COCKPIT=0 in ~/.bashrc to stop trying."
   unset _vicks_t0
-elif [ -z "${VICKS_NO_BANNER:-}" ] && [ -t 1 ]; then
+elif [ -z "${VICKS_NO_BANNER:-}" ] && [ -z "${VICKS_PLAIN:-}" ] && [ -t 1 ]; then
   hello --new-window ${VICKS_NO_NET:+--no-net}
 fi

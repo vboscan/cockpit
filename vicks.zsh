@@ -1,14 +1,15 @@
 # vicks.zsh — entry point for zsh, sourced from ~/.zshrc (install.sh adds the line).
-# Sets up the prompt. Every new terminal then opens in the cockpit: the banner
-# stays pinned at the top and updates itself while commands scroll underneath.
+# Sets up the prompt. Every new terminal then runs inside tmux (the "cockpit"), and
+# one terminal per cmux workspace also shows the pinned, self-updating banner.
 #
 # Commands:  hello [--fresh|--no-net]   print the full banner once
-#            cockpit [top|side]         start the cockpit by hand
+#            cockpit here               move the banner into this terminal
 #            cockpit refresh            look everything up again right now
 #            vicks-deploy user@host     install all of this on a remote machine
 #
 # Settings (export them in ~/.zshrc above the vicks block):
-#   VICKS_AUTO_COCKPIT=0   new terminals show the one-off banner instead of the cockpit
+#   VICKS_PLAIN=1          a raw shell: no tmux and no banner (prompt and commands stay)
+#   VICKS_AUTO_COCKPIT=0   no tmux; new terminals print the one-off banner instead
 #   VICKS_COCKPIT_LAYOUT=side   pinned banner in a right-hand column instead of on top
 #   VICKS_REMOTE_ART=deathstar  ship shown when reached over SSH (tie, deathstar, xwing)
 #   VICKS_NO_BANNER=1      no banner at all on new shells
@@ -65,14 +66,14 @@ else
 fi
 
 # ── cockpit or banner ────────────────────────────────────────────────────
-# The cockpit starts by itself only in a real, roomy terminal window: not inside
-# tmux, not for `zsh -c`, not in IDE terminal panels, and not when switched off.
+# The cockpit starts by itself in real terminal windows of any size: not inside tmux,
+# not for `zsh -c`, not in IDE terminal panels, and not when switched off. Whether a
+# terminal also shows the banner is decided by `cockpit.sh reconcile`, not here.
 _vicks_wants_cockpit() {
-  [[ ${VICKS_AUTO_COCKPIT:-1} != 0 ]] || return 1
+  [[ ${VICKS_AUTO_COCKPIT:-1} != 0 && -z ${VICKS_PLAIN:-} ]] || return 1
   [[ -t 0 && -t 1 ]] || return 1
   [[ -z ${TMUX:-} && -z ${VICKS_IN_COCKPIT:-} && -z ${ZSH_EXECUTION_STRING:-} ]] || return 1
   [[ ${TERM_PROGRAM:-} != vscode && -z ${INSIDE_EMACS:-} && ${TERMINAL_EMULATOR:-} != JetBrains* ]] || return 1
-  (( ${LINES:-0} >= 30 && ${COLUMNS:-0} >= 80 )) || return 1
   command -v tmux >/dev/null 2>&1
 }
 
@@ -84,6 +85,6 @@ if _vicks_wants_cockpit; then
   # tmux failed or ended at once: never lock the user out, fall back to a plain shell
   print -P "%F{214}The cockpit did not start. This is a normal shell. Set VICKS_AUTO_COCKPIT=0 in ~/.zshrc to stop trying.%f"
   unset _vicks_t0
-elif [[ -z ${VICKS_NO_BANNER:-} && -t 1 ]]; then
+elif [[ -z ${VICKS_NO_BANNER:-} && -z ${VICKS_PLAIN:-} && -t 1 ]]; then
   hello --new-window ${VICKS_NO_NET:+--no-net}
 fi

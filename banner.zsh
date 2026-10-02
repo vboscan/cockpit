@@ -5,6 +5,7 @@
 #         banner.zsh --fresh    ignore every cache and look everything up again
 #         banner.zsh --no-net   skip public IP lookup, traceroute and speed tests
 #         banner.zsh --new-window   also start the once-per-window speed tests in the background
+#         banner.zsh --kick         start those background jobs and print nothing
 #         banner.zsh --speedtest    run the speed tests now and print the results
 #         banner.zsh --review       run the Claude check now and print its findings
 #         banner.zsh --fix [n]      open Claude on the findings (or on finding n)
@@ -72,7 +73,7 @@ local C_OK=$'\e[38;5;82m' C_WARN=$'\e[38;5;214m' C_BAD=$'\e[38;5;196m' C_INFO=$'
 
 # ---------------------------------------------------------------- options ---
 local fresh=0 nonet=0 dash=0 once=0 side=0 force_cols=0 new_window=0 speed_now=0
-local review_now=0 fix_mode=0 fix_n="" data_mode=0
+local review_now=0 fix_mode=0 fix_n="" data_mode=0 kick_only=0
 while (( $# )); do
   case $1 in
     --fresh)  fresh=1 ;;
@@ -81,6 +82,7 @@ while (( $# )); do
     --once)   once=1 ;;
     --side)   side=1 ;;
     --new-window) new_window=1 ;;   # a terminal window just opened: run the once-per-window speed tests
+    --kick)       new_window=1; kick_only=1 ;;   # the same, then exit without printing anything
     --speedtest)  speed_now=1 ;;    # run the speed tests now and print the results
     --review)     review_now=1 ;;   # run the Claude check now and print its findings
     --fix)        fix_mode=1; [[ ${2:-} == <-> ]] && { fix_n=$2; shift; } ;;   # open Claude on the findings
@@ -795,6 +797,7 @@ fi
 
 # a terminal window has just opened: start the once-per-window speed tests
 (( new_window && ! once )) && speedtests_start 0
+if (( kick_only )); then return 0 2>/dev/null || exit 0; fi
 
 # ------------------------------------------------------- Claude check ---
 # A headless Claude Code run reads a plain-text snapshot of this banner and says

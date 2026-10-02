@@ -127,29 +127,39 @@ The first banner after installing says "checking…".
 
 ## The cockpit: the banner stays on screen
 
-Every new terminal opens in the cockpit.
-The banner is pinned at the top of the window and redraws itself every five seconds.
+Every new terminal runs inside tmux, and one terminal per cmux workspace shows the banner.
+The banner is pinned at the top of that terminal and redraws itself every five seconds.
 Your shell runs underneath it, so commands and their output scroll below the banner.
 
-- The banner pane sizes itself to its content, up to 60% of the window.
-- The banner is display-only. Clicking it hands focus straight back to the shell.
-- Typing `exit`, or closing the window, ends the cockpit and its banner.
-- It runs on tmux with its own server and [tmux.conf](tmux.conf), so a personal tmux setup is untouched.
+- **One banner per workspace.** The first roomy terminal in a workspace gets it. Further splits and tabs in that workspace are plain shells, so they keep their full height.
+- **It follows the workspace.** When the terminal holding the banner closes, the banner appears in the most recently used terminal of that workspace. The shell there is not disturbed.
+- **`cockpit here`** moves the banner into the terminal you are in.
+- **Small windows** under 80 columns by 30 rows run in tmux too, but are never given the banner.
+- **Outside cmux** there are no workspaces, so every terminal has its own banner.
+- The banner pane sizes itself to its content, up to 60% of the window, and is display-only: clicking it hands focus straight back to the shell.
+- Typing `exit`, or closing the window, ends that terminal's tmux session.
+- It runs on its own tmux server with [tmux.conf](tmux.conf), so a personal tmux setup is untouched.
 
 | Command or setting | Effect |
 |---|---|
+| `cockpit here` | Move this workspace's banner into the current terminal |
 | `cockpit refresh` | Look everything up again right now |
 | `cockpit speedtest` | Run the internet and Tailscale speed tests again right now |
 | `hello` | Print the full, long-form banner once in the shell |
 | `export VICKS_COCKPIT_LAYOUT=side` | Pin the banner in a right-hand column instead of on top |
 | `export VICKS_DASH_ART=0` | Leave out the X-wing for a shorter banner |
-| `export VICKS_AUTO_COCKPIT=0` | Go back to a one-off banner that scrolls away. `cockpit` still starts it by hand |
+| `export VICKS_PLAIN=1` | A raw shell: no tmux and no banner. The prompt and commands stay |
+| `export VICKS_AUTO_COCKPIT=0` | No tmux. New terminals print a one-off banner that scrolls away |
 
-The cockpit does not start by itself in these cases, where a plain shell with the one-off banner is used instead:
+tmux does not start by itself in these cases, where a plain shell is used instead:
 
-- inside tmux, VS Code, JetBrains or Emacs terminals
-- windows smaller than 80 columns by 30 rows
+- inside another tmux, and in VS Code, JetBrains or Emacs terminals
+- for `zsh -c` and other non-interactive shells
 - if tmux fails to start, so a broken setup can never lock you out of the terminal
+
+**How it works.** Each terminal has its own tmux session holding only its shell, tagged with its cmux workspace.
+The banner is one extra pane. [cockpit.sh](cockpit.sh) reconciles whenever a terminal opens or closes: a workspace with no banner gets one in its most recently used terminal, and a workspace with two loses the older one.
+Because the banner is only a pane, moving it never touches a running shell.
 
 The layout adapts to the window width.
 
