@@ -13,6 +13,11 @@ case $- in *i*) ;; *) return 0 ;; esac
 VICKS_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export VICKS_HOME
 export VIRTUAL_ENV_DISABLE_PROMPT=1   # the prompt shows the venv itself
+# Who logged in to this terminal: the owner of the terminal device. That stays the
+# same through sudo, su and tmux, so the prompt can flag commands run as someone else.
+_vicks_tty=$(tty 2>/dev/null)
+export VICKS_LOGIN_USER="${VICKS_LOGIN_USER:-$(stat -c %U "$_vicks_tty" 2>/dev/null || stat -f %Su "$_vicks_tty" 2>/dev/null)}"
+unset _vicks_tty
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" ;; esac
 
 hello()   { zsh "$VICKS_HOME/banner.zsh" "$@"; }

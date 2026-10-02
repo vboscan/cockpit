@@ -18,6 +18,10 @@
 
 export VICKS_HOME=${${(%):-%x}:A:h}
 export VIRTUAL_ENV_DISABLE_PROMPT=1   # the prompt shows the venv itself
+# Who logged in to this terminal: the owner of the terminal device. That stays the
+# same through sudo, su and tmux, so the prompt can flag commands run as someone else.
+# (GNU stat first, then BSD stat; `logname` is not reliable everywhere.)
+export VICKS_LOGIN_USER=${VICKS_LOGIN_USER:-$(stat -c %U "$TTY" 2>/dev/null || stat -f %Su "$TTY" 2>/dev/null)}
 [[ -d $HOME/.local/bin && :$PATH: != *:$HOME/.local/bin:* ]] && PATH=$HOME/.local/bin:$PATH
 
 # `hello` prints the banner any time; `hello --fresh` bypasses the network cache.

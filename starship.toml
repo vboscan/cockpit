@@ -7,7 +7,7 @@ add_newline = true
 command_timeout = 800
 
 format = """
-[╭─](240) $username$hostname$directory$git_branch$git_commit$git_state$git_status$python${custom.venv_inactive}$nodejs$rust$golang$docker_context$fill$cmd_duration$jobs$status$time
+[╭─](240) ${custom.as_other}$username$hostname $directory$git_branch$git_commit$git_state$git_status$python${custom.venv_inactive}$nodejs$rust$golang$docker_context$fill$cmd_duration$jobs$status$time
 [╰─](240)$character"""
 
 [fill]
@@ -15,15 +15,26 @@ symbol = " "
 
 # ── who / where ────────────────────────────────────────────────────────────
 [username]
-show_always = false                 # only when root or over SSH
-style_user = "bold 220"
-style_root = "bold 196"
+show_always = true                  # always say who is running the commands
+style_user = "bold 114"             # soft green: an ordinary user
+style_root = "bold fg:231 bg:196"   # white on red: root
 format = "[$user]($style)"
+
+# A badge when the current user is not the one who logged in to this terminal,
+# for example inside `sudo -s`, `sudo -u someone -s` or `su`.
+# VICKS_LOGIN_USER is set once per terminal by vicks.zsh / vicks.bash.
+[custom.as_other]
+description = "Commands are running as a different user than the one who logged in"
+when = '[ -n "$VICKS_LOGIN_USER" ] && [ "$(id -un)" != "$VICKS_LOGIN_USER" ]'
+command = 'echo "not $VICKS_LOGIN_USER"'
+style = "bold fg:16 bg:214"         # black on orange
+format = "[ ⚠ $output ]($style) "
+shell = ["sh"]
 
 [hostname]
 ssh_only = true
 style = "bold 214"
-format = "[@$hostname]($style) "
+format = "[@$hostname]($style)"
 
 [directory]
 style = "bold 39"                   # bright blue

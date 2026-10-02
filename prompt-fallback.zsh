@@ -13,8 +13,13 @@ zstyle ':vcs_info:git:*' actionformats ' %F{245}git:%f%F{141}%b%f %F{196}(%a)%f%
 
 _vicks_precmd() {
   vcs_info
-  _vicks_who=""
-  [[ -n ${SSH_CONNECTION:-} ]] && _vicks_who='%B%F{214}%n@%m%f%b '
+  # always show who is running the commands: green for an ordinary user, white on
+  # red for root, and an orange badge when it is not the user who logged in
+  _vicks_who='%(!.%B%K{196}%F{231}%n%f%k%b.%B%F{114}%n%f%b)'
+  [[ -n ${VICKS_LOGIN_USER:-} && $USERNAME != $VICKS_LOGIN_USER ]] && \
+    _vicks_who="%B%K{214}%F{16} ⚠ not ${VICKS_LOGIN_USER} %f%k%b ${_vicks_who}"
+  [[ -n ${SSH_CONNECTION:-} ]] && _vicks_who+='%B%F{214}@%m%f%b'
+  _vicks_who+=' '
   _vicks_venv=""
   if [[ -n ${VIRTUAL_ENV:-} ]]; then
     local name=${VIRTUAL_ENV:t}
@@ -29,5 +34,5 @@ _vicks_precmd() {
 }
 add-zsh-hook precmd _vicks_precmd
 
-PROMPT=$'\n''%F{240}╭─%f %(!.%B%F{196}%n%f%b .)${_vicks_who}%B%F{39}%~%f%b${vcs_info_msg_0_}${_vicks_venv}'$'\n''%F{240}╰─%f %(?.%B%F{82}.%B%F{196})❯%f%b '
+PROMPT=$'\n''%F{240}╭─%f ${_vicks_who}%B%F{39}%~%f%b${vcs_info_msg_0_}${_vicks_venv}'$'\n''%F{240}╰─%f %(?.%B%F{82}.%B%F{196})❯%f%b '
 RPROMPT='%(?..%B%F{196}✘ %?%f%b )%F{220}%D{%a %d %b %H:%M:%S}%f'

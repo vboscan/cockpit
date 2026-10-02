@@ -194,12 +194,14 @@ Colour tokens switch colour until the next token.
 ## The prompt
 
 ```
-╭─ ~/Git/vicks-prompt-hello-world/src git:main +1 !2 ?3 ⇡1 🐍 (myproject) v3.13.1     Fri 02 Oct 17:30:12
+╭─ vicky ~/Git/vicks-prompt-hello-world/src git:main +1 !2 ?3 ⇡1 🐍 (myproject) v3.13.1     Fri 02 Oct 17:30:12
 ╰─ ❯
 ```
 
 | Part | Meaning |
 |---|---|
+| User | Who is running the commands. Green for an ordinary user, white on red for root. Over SSH it becomes `user@host` |
+| `⚠ not vicky` | An orange badge when the current user is not the one who opened the terminal, as inside `sudo -s` or `su` |
 | Path | The full path from `~`, in blue. Inside a git repository the repository name is cyan |
 | `git:main` | Current branch in purple |
 | `+1 !2 ?3` | Staged in green, modified in orange, untracked in blue |
