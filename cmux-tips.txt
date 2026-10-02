@@ -90,3 +90,10 @@ cockpit speedtest  | Speed test now
 hello              | Full banner
 hello --fresh      | Banner, fresh
 vicks-deploy HOST  | Remote install
+
+# ── this banner: Claude and layout ──
+cockpit review     | Claude check now
+cockpit fix        | Fix with Claude
+cockpit fix 2      | Fix finding 2 only
+cockpit side       | Banner on the right
+hello --no-net     | Banner, no lookups

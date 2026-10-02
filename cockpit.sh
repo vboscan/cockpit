@@ -6,10 +6,21 @@
 #   cockpit.sh side      banner in a right-hand column
 #   cockpit.sh refresh   look everything up again right now
 #   cockpit.sh speedtest run the speed tests again right now
+#   cockpit.sh review    ask Claude to check the dashboard now and list what needs attention
+#   cockpit.sh fix [n]   open Claude on those findings, or on finding number n
 
 VICKS_HOME=${VICKS_HOME:-$(cd "$(dirname "$0")" && pwd)}
 layout=${1:-${VICKS_COCKPIT_LAYOUT:-top}}
 
+if [ "$layout" = review ]; then
+  # ask Claude to check the dashboard again right now and print what it finds
+  exec zsh "$VICKS_HOME/banner.zsh" --review
+fi
+if [ "$layout" = fix ]; then
+  # open an interactive Claude session that starts from the findings (optionally one of them)
+  shift
+  exec zsh "$VICKS_HOME/banner.zsh" --fix "$@"
+fi
 if [ "$layout" = speedtest ]; then
   # run the internet and Tailscale speed tests again right now
   exec zsh "$VICKS_HOME/banner.zsh" --speedtest

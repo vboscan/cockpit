@@ -30,6 +30,7 @@ Remove the block again with `./install.sh --uninstall`.
 | X-wing | White and grey hull, red squadron stripes, orange engines, blue canopy |
 | System | Host, OS version and build, pending macOS updates, kernel, hardware, outdated Homebrew packages, uptime |
 | Who is here | Every logged-in user with session count, remote logins, your last login |
+| Attention | Optional. What a headless Claude run thinks needs you, colour-coded by severity |
 | Resources | CPU, memory and disk bars, load averages, battery, process count |
 | Top apps | The five biggest consumers of CPU and the five biggest consumers of memory, side by side |
 | Network | Interface and Wi-Fi name, private IP, gateway, other IPs, DNS, public IP, ISP, NAT, internet speed |
@@ -47,10 +48,45 @@ The top apps are grouped by app, so an app's helper processes count as one entry
 Their CPU figures are a share of the whole machine, on the same scale as the CPU bar.
 WebKit web pages are the pages open in Safari and in other apps that embed WebKit.
 
+### Attention: a Claude check of the banner's data
+
+With `VICKS_REVIEW=1`, a headless [Claude Code](https://claude.com/claude-code) run reads the banner's data about once an hour and lists what needs your attention.
+The result sits under the X-wing, numbered and colour-coded.
+
+```
+ATTENTION checked 4m ago ─────────
+1 ● macOS updates available
+2 ● Tailscale peer offline
+3 ● Homebrew package outdated
+→ cockpit fix  opens Claude on it
+```
+
+| Colour | Meaning |
+|---|---|
+| Green heading, "All clear" | Nothing needs you |
+| Red dot | Act today: someone else logged in, no internet, disk nearly full |
+| Orange dot | Act this week: pending OS updates, a slow hop, a failed speed test |
+| Blue dot | Housekeeping: outdated packages, a peer offline for days |
+
+The heading takes the colour of the worst finding, so one glance is enough.
+
+| Command | Effect |
+|---|---|
+| `cockpit review` | Run the check now and print each finding with its reason and a suggested action |
+| `cockpit fix` | Open an interactive Claude session that starts from all the findings |
+| `cockpit fix 2` | The same, for finding number 2 only |
+| `hello --data` | Print the plain-text snapshot the check reads |
+
+- **Read-only:** the headless run receives the data as text and has every tool switched off. It cannot run commands or touch files. Its answer is forced into a fixed shape and stripped of control characters before it is printed.
+- **The hand-off:** `cockpit fix` starts a normal interactive session with the findings and the snapshot as its first message, and asks Claude to verify each finding and to check with you before changing anything.
+- **Cost and speed:** about ten seconds and roughly one cent per check on Haiku, at most once an hour while a banner is open. It uses the Claude account you are signed in to.
+- **What leaves the machine:** the snapshot goes to Anthropic through Claude Code. It contains what the banner shows, including host name, user names, IP addresses, Wi-Fi name, app names and Tailscale peers.
+- **Opt-in:** it is off unless `VICKS_REVIEW=1` is set, and it needs the `claude` command.
+
 ### Rotating tips
 
 Under the X-wing, the banner shows five cmux shortcuts and commands at a time and moves to the next five every 30 seconds.
-The list has 60 tips in twelve themed pages, from getting around and tabs through to cmux commands and this banner's own commands.
+The list has 65 tips in thirteen themed pages, from getting around and tabs through to cmux commands and this banner's own commands.
 
 - **The list is a text file:** [cmux-tips.txt](cmux-tips.txt), one `shortcut | description` per line. Edit it freely; changes show on the next redraw.
 - **Shortcuts are cmux's defaults,** checked against cmux's [published shortcut data](https://cmux.com/docs/keyboard-shortcuts). If you rebind one in `~/.config/cmux/cmux.json`, or cmux changes a default, update its line in the file.
@@ -63,11 +99,12 @@ They never run on a redraw, and their results appear in the banner when they fin
 
 | Test | How |
 |---|---|
-| Internet | Eight parallel downloads and four parallel uploads against `speed.cloudflare.com`, each direction capped at 8 seconds |
+| Internet | Eight parallel downloads and four parallel uploads of 25 MB against `speed.cloudflare.com`, each direction capped at 8 seconds |
 | Tailscale | `iperf3` to one peer, 5 seconds in each direction |
 
-- **Data use:** the internet test moves roughly 100 MB per run on a 60 Mbps line, and more on faster lines, up to about 900 MB.
-- **Several windows in a row:** a result younger than five minutes is reused, and a test already running is not started twice.
+- **Data use:** the internet test moves roughly 100 MB per run on a 60 Mbps line, and at most 300 MB on a fast one.
+- **Several windows in a row:** a result younger than 15 minutes is reused, and a test already running is not started twice.
+- **Rate limits:** Cloudflare rejects heavy use of this endpoint for about 15 minutes. The banner then shows "rate-limited" for that direction instead of a number.
 - **On demand:** `cockpit speedtest` runs both again right now.
 - **Remote machines:** a machine reached over SSH does not test by default. Set `VICKS_SPEEDTEST=1` there to turn it on.
 - **Tailscale peer:** name it in `~/.config/vicks/config` as `VICKS_IPERF_HOST=user@host`. Both ends need `iperf3`, and you need SSH access to the peer. A one-shot `iperf3` server is started there for each direction and exits afterwards, so nothing is left running.
@@ -80,6 +117,7 @@ They never run on a redraw, and their results appear in the banner when they fin
 | Tailscale | Every 20 seconds |
 | Public IP and traceroute | Every 10 minutes in the banner, every 2 minutes in the cockpit |
 | macOS and Homebrew updates | Every 6 hours, checked in the background |
+| Claude check | Every hour, in the background |
 | Speed tests | Once per new terminal window |
 
 The update checks take several seconds, so they never block the terminal.
@@ -173,7 +211,11 @@ On Linux the banner uses `ip`, `free` and `/proc` in place of the macOS tools, a
 | `VICKS_TOP_N=5` | How many apps each top list shows |
 | `VICKS_SPEEDTEST=0` | Never run speed tests. `1` also runs them on remote machines |
 | `VICKS_SPEEDTEST_SECONDS=8` | Time cap for each direction of the internet test |
-| `VICKS_SPEEDTEST_MIN_AGE=300` | Reuse a result younger than this many seconds |
+| `VICKS_SPEEDTEST_MIN_AGE=900` | Reuse a result younger than this many seconds |
+| `VICKS_SPEEDTEST_MB=25` | Megabytes requested per stream |
+| `VICKS_REVIEW=1` | Turn on the Claude check |
+| `VICKS_REVIEW_TTL=3600` | Seconds between checks |
+| `VICKS_REVIEW_MODEL=haiku` | Model used for the check |
 | `VICKS_IPERF_HOST=user@host` | Tailscale peer for the `iperf3` test. Unset means no Tailscale test |
 | `VICKS_TIPS=0` | Hide the rotating tips |
 | `VICKS_TIPS_SECONDS=30` | How long each page of tips stays up |
