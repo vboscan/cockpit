@@ -14,14 +14,15 @@ cd vicks-prompt-hello-world
 ./install.sh
 ```
 
-The installer does four things:
+The installer does five things:
 
 1. Installs [Starship](https://starship.rs) with Homebrew if it is missing. It draws the prompt.
 2. Installs [tmux](https://github.com/tmux/tmux) and `iperf3` with Homebrew if they are missing. The cockpit needs tmux, and the Tailscale speed test needs iperf3.
 3. Adds one marked block to `~/.zshrc` that sources `vicks.zsh` from this folder.
 4. If a Ghostty or cmux configuration file exists, adds one marked block to it that makes Cmd+K work with the pinned banner.
+5. If Claude Code is set up (`~/.claude` exists), installs the `/btw` side pane: a skill, one hook in `~/.claude/settings.json` and one marked block in `~/.claude/CLAUDE.md`. See [Claude Code in the cockpit](#claude-code-in-the-cockpit).
 
-Remove the block again with `./install.sh --uninstall`.
+Remove all of it again with `./install.sh --uninstall`.
 
 ## What the banner shows
 
@@ -166,6 +167,27 @@ The layout adapts to the window width.
 - **Cmd+K:** clears the shell pane and its scrollback and leaves the banner alone. In Ghostty-based terminals (Ghostty, cmux) the installer remaps Cmd+K to send a private key code, because the default action wipes the terminal's own buffer behind tmux's back. Reload the terminal's configuration once after installing. In other terminals, use `clear && tmux clear-history`.
 - **Copying:** drag to select and the text is copied on release. Hold Option while dragging to use the terminal's own selection.
 
+### Claude Code in the cockpit
+
+The installer sets up three things for [Claude Code](https://claude.com/claude-code), all from the [claude](claude) folder.
+
+- **`/btw <question>` opens a side session.** The pane to the right of the asking session runs a new interactive Claude session. It is a fork of the asking session, so it knows the conversation so far and keeps its own history. Leaving it with `/exit` closes the pane.
+- **The asking session spends no turn on it.** A `UserPromptExpansion` hook opens the pane and blocks the prompt. The session shows one "blocked by hook" line saying the side question was opened.
+- **Claude shows its sub-tasks in tmux panes.** A marked block in `~/.claude/CLAUDE.md` tells Claude to run test runs, builds and similar work in a helper pane of the cockpit window instead of a new terminal.
+
+| Situation | What `/btw` does |
+|---|---|
+| In the cockpit, or any tmux | Splits the current tmux window, so the banner stays shared |
+| Outside tmux, inside cmux | Opens a cmux split |
+| Neither | Claude answers the question inline, as a normal turn |
+| Claude is in the middle of a turn | The command waits in the queue and opens the pane when the turn ends |
+
+Set `BTW_FOCUS=true` to move keyboard focus to the new pane. By default focus stays where you are.
+
+The skill replaces Claude Code's built-in `/btw` overlay. `./install.sh --uninstall` brings the overlay back.
+
+cmux gives each terminal its own identifiers, such as `CMUX_WORKSPACE_ID`. Each cockpit session takes them from the terminal that opened it, so `cmux` commands run inside the cockpit act on the right workspace.
+
 ## Remote machines
 
 ```bash
@@ -287,6 +309,8 @@ If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws t
 | `starship.toml` | Prompt configuration |
 | `prompt-fallback.zsh` | Prompt without Starship |
 | `tmux.conf` | tmux settings used only by the cockpit |
+| `claude/btw/` | The `/btw` skill for Claude Code and the script that opens the side pane |
+| `claude/cockpit-rules.md` | The block added to `~/.claude/CLAUDE.md` |
 | `install.sh` | Installer and uninstaller for macOS and Linux |
 
 Built and tested on macOS with zsh and bash. The Linux code paths are written but have not been run on a Linux machine yet.

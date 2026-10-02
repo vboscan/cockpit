@@ -21,16 +21,36 @@ for a in "$@"; do
   esac
 done
 
-remove_block() {   # remove_block <rcfile>
+remove_block() {   # remove_block <file> [begin-line end-line]
+  local begin=${2:-$BEGIN} end=${3:-$END}
   [ -f "$1" ] || return 0
-  if grep -qF "$BEGIN" "$1"; then
+  if grep -qF "$begin" "$1"; then
     cp "$1" "$1.vicks-backup"
-    sed -i.tmp "/^$BEGIN\$/,/^$END\$/d" "$1" && rm -f "$1.tmp"
+    sed -i.tmp "/^$begin\$/,/^$end\$/d" "$1" && rm -f "$1.tmp"
   fi
 }
 
 ZSHRC="${ZDOTDIR:-$HOME}/.zshrc"
 BASHRC="$HOME/.bashrc"
+
+# Claude Code: the /btw skill, its hook in settings.json, and a marked block in CLAUDE.md
+CLAUDE_DIR="$HOME/.claude"
+CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
+CLAUDE_SETTINGS="$CLAUDE_DIR/settings.json"
+MD_BEGIN="<!-- >>> vicks-prompt-hello-world >>> -->"
+MD_END="<!-- <<< vicks-prompt-hello-world <<< -->"
+BTW_HOOK='sh ~/.claude/skills/btw/btw-side.sh hook'
+
+remove_btw_hook() {   # take the /btw hook out of settings.json, and the keys it leaves empty
+  [ -f "$CLAUDE_SETTINGS" ] && command -v jq >/dev/null 2>&1 || return 0
+  jq -e --arg cmd "$BTW_HOOK" 'any(.hooks.UserPromptExpansion[]?.hooks[]?; .command == $cmd)' \
+    "$CLAUDE_SETTINGS" >/dev/null 2>&1 || return 0
+  jq --arg cmd "$BTW_HOOK" '
+    .hooks.UserPromptExpansion |= map(select(any(.hooks[]?; .command == $cmd) | not))
+    | if .hooks.UserPromptExpansion == [] then del(.hooks.UserPromptExpansion) else . end
+    | if .hooks == {} then del(.hooks) else . end' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" \
+    && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+}
 
 if [ "$ACTION" = uninstall ]; then
   remove_block "$ZSHRC"; remove_block "$BASHRC"
@@ -39,6 +59,10 @@ if [ "$ACTION" = uninstall ]; then
            "$HOME/.config/ghostty/config.ghostty" "$HOME/.config/ghostty/config"; do
     remove_block "$f"
   done
+  remove_block "$CLAUDE_MD" "$MD_BEGIN" "$MD_END"
+  remove_btw_hook
+  rm -f "$CLAUDE_DIR/skills/btw/SKILL.md" "$CLAUDE_DIR/skills/btw/btw-side.sh"
+  rmdir "$CLAUDE_DIR/skills/btw" 2>/dev/null
   rm -f "$HOME/.local/bin/vicks-deploy"
   echo "Removed the vicks block from your shell startup files. Open a new terminal."
   exit 0
@@ -151,5 +175,37 @@ case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
   *) echo "Note: ~/.local/bin is not on your PATH in this shell; new terminals add it." ;;
 esac
+
+# ── 4. Claude Code: /btw in a side pane, and how to show work in the cockpit ──
+# Only where Claude Code is set up. The skill takes over the built-in /btw; the hook
+# opens the side pane without the asking session spending a turn on it; the CLAUDE.md
+# block tells Claude to show its sub-tasks in tmux panes of the cockpit.
+if [ -d "$CLAUDE_DIR" ]; then
+  mkdir -p "$CLAUDE_DIR/skills/btw"
+  cp "$REPO/claude/btw/SKILL.md" "$REPO/claude/btw/btw-side.sh" "$CLAUDE_DIR/skills/btw/"
+  chmod +x "$CLAUDE_DIR/skills/btw/btw-side.sh"
+
+  remove_block "$CLAUDE_MD" "$MD_BEGIN" "$MD_END"
+  # the block has to start on a line of its own, or the next run cannot find it
+  [ -s "$CLAUDE_MD" ] && [ -n "$(tail -c1 "$CLAUDE_MD")" ] && echo >> "$CLAUDE_MD"
+  { echo "$MD_BEGIN"; cat "$REPO/claude/cockpit-rules.md"; echo "$MD_END"; } >> "$CLAUDE_MD"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is missing, so the /btw hook was not added to $CLAUDE_SETTINGS. Install jq and run this again."
+  else
+    [ -s "$CLAUDE_SETTINGS" ] || echo '{}' > "$CLAUDE_SETTINGS"
+    if jq -e --arg cmd "$BTW_HOOK" 'any(.hooks.UserPromptExpansion[]?.hooks[]?; .command == $cmd)' \
+         "$CLAUDE_SETTINGS" >/dev/null 2>&1; then
+      :   # already there
+    elif jq --arg cmd "$BTW_HOOK" '.hooks.UserPromptExpansion += [{hooks: [{type: "command", command: $cmd}]}]' \
+           "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp"; then
+      mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+    else
+      rm -f "$CLAUDE_SETTINGS.tmp"
+      echo "Could not read $CLAUDE_SETTINGS, so the /btw hook was not added."
+    fi
+  fi
+  echo "Claude Code: /btw now opens a side pane. Restart running Claude sessions to pick it up."
+fi
 
 echo "Installed into $RC. Open a new terminal (or log in again) to see it."

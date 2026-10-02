@@ -28,7 +28,7 @@ if [ "${1:-}" = --uninstall ]; then
 fi
 
 FILES=(banner.zsh vicks.zsh vicks.bash cockpit.sh tmux.conf starship.toml prompt-fallback.zsh
-       install.sh xwing.art xwing-small.art tie.art deathstar.art cmux-tips.txt README.md)
+       install.sh xwing.art xwing-small.art tie.art deathstar.art cmux-tips.txt README.md claude)
 
 echo "Copying to $HOST:~/.vicks ..."
 # COPYFILE_DISABLE keeps macOS metadata files out of the archive
