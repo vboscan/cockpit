@@ -33,13 +33,14 @@ Remove the block again with `./install.sh --uninstall`.
 | Top apps | The five biggest consumers of CPU and the five biggest consumers of memory, side by side |
 | Network | Interface and Wi-Fi name, private IP, gateway, other IPs, DNS, public IP, ISP, NAT |
 | Tailscale | Connection state, tailnet, this device, exit node, every peer with online state |
-| Route to internet | Each hop from this machine up to the first public address, with address kind, latency and network owner |
+| Route to internet | Each hop from this machine until the route reaches Google's network, with address kind, latency and network owner |
 
 The public IP comes from a lookup at `ipinfo.io`, so it is correct behind NAT.
 Hop owners come from the same service. Hops are classed as private, carrier-grade NAT or public.
 
-The route stops at the first public address, because that is where the internet starts.
-The trace is still aimed at `8.8.8.8`. Set `VICKS_TRACE_FULL=1` to see every hop to it.
+The trace is aimed at `8.8.8.8`, and the route shown stops at the first hop that Google owns.
+That covers your router, your ISP's network and the handover to Google, without the hops inside Google.
+Ownership is matched on the network number of the target, so a different target stops at its own network.
 
 The top apps are grouped by app, so an app's helper processes count as one entry.
 Their CPU figures are a share of the whole machine, on the same scale as the CPU bar.
@@ -112,7 +113,7 @@ The layout adapts to the window width.
 | `VICKS_DASH_INTERVAL=5` | Seconds between cockpit redraws |
 | `VICKS_UPDATE_TTL=21600` | Seconds between update checks |
 | `VICKS_TRACE_TARGET=8.8.8.8` | Where the traceroute is aimed |
-| `VICKS_TRACE_FULL=1` | Show every hop to the target, not just up to the first public one |
+| `VICKS_TRACE_STOP=owner` | Where the shown route ends. `owner` is the first hop in the target's own network, `public` the first public address, `full` every hop |
 | `VICKS_TOP_N=5` | How many apps each top list shows |
 | `VICKS_ART=/path/to/file` | Use different art |
 

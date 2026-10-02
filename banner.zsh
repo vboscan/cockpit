@@ -18,7 +18,8 @@
 #         VICKS_DASH_ART_FILE=path   art for the dashboard (default: xwing-small.art)
 #         VICKS_UPDATE_TTL=21600     seconds between macOS / Homebrew update checks
 #         VICKS_TRACE_TARGET=8.8.8.8  where the traceroute is aimed
-#         VICKS_TRACE_FULL=1         show every hop to the target, not just up to the first public one
+#         VICKS_TRACE_STOP=owner     where the shown route ends: owner (first hop in the target's
+#                                    own network, Google for 8.8.8.8), public (first public address), full
 #         VICKS_TOP_N=5              how many apps the TOP APPS lists show
 
 emulate -L zsh
@@ -75,7 +76,12 @@ local ttl=${VICKS_CACHE_TTL:-600}
 (( dash )) && ttl=${VICKS_DASH_NET_TTL:-120}
 local upd_ttl=${VICKS_UPDATE_TTL:-21600}
 local target=${VICKS_TRACE_TARGET:-8.8.8.8}
-local full_trace=${VICKS_TRACE_FULL:-0}   # 1 = show every hop to the target
+# Where the displayed route stops:
+#   owner  = first hop inside the target's own network (Google for 8.8.8.8)
+#   public = first public address
+#   full   = every hop to the target
+local trace_stop=${VICKS_TRACE_STOP:-owner}
+(( ${VICKS_TRACE_FULL:-0} )) && trace_stop=full
 local cache_dir=${XDG_CACHE_HOME:-$HOME/.cache}/vicks
 mkdir -p "$cache_dir" 2>/dev/null
 
@@ -517,8 +523,17 @@ blk_tailscale() {
 }
 
 blk_route() {
-  if (( full_trace )); then section "ROUTE TO INTERNET" "traceroute to ${target}"
-  else section "ROUTE TO INTERNET" "up to the first public address"; fi
+  # who owns the target: "AS15169 Google LLC" -> AS number and a short name
+  local target_org="" target_as="" target_name=""
+  if [[ $trace_stop == owner ]]; then
+    target_org="$(cached "org_${target}" 86400 curl -s -m 2 "https://ipinfo.io/${target}/org")"
+    [[ $target_org == *[\{\<]* ]] && target_org=""
+    target_as=${target_org%% *}; target_name=${target_org#* }
+    target_name=${target_name%,}; target_name=${${${${target_name% LLC}% Inc.}% Inc}% Ltd}
+  fi
+  if [[ $trace_stop == owner && -n $target_as ]]; then section "ROUTE TO INTERNET" "until it reaches ${target_name}"
+  elif [[ $trace_stop == public ]]; then section "ROUTE TO INTERNET" "up to the first public address"
+  else section "ROUTE TO INTERNET" "traceroute to ${target}"; fi
   local trace
   trace="$(cached "trace_${target}" $ttl traceroute -n -q 1 -w 1 -m 20 "$target")"
   if [[ -z $trace ]]; then
@@ -547,7 +562,7 @@ blk_route() {
       cgnat)      col=$C_WARN; name="ISP carrier-grade NAT (100.64/10)"; (( compact )) && name="ISP carrier-grade NAT" ;;
       link-local) col=$C_D;    name="link-local" ;;
       *)          col=$C_OK
-        if [[ $addr == $target ]]; then name="destination"
+        if [[ $addr == $target ]]; then name="destination"; org=$target_org
         else
           # network owner (AS number and organisation), plus the reverse DNS name
           name="$(cached "rdns_${addr}" 86400 dig +short +time=1 +tries=1 -x "$addr" | head -1)"; name=${name%.}
@@ -566,14 +581,23 @@ blk_route() {
       printf "  %s%-4s %s%-18s %s%-10s %s%-9s %s%s%s\n" \
         "$C_V" "$hop" "$col" "$addr" "$C_V" "$cls" "$latcol" "${ms} ms" "$C_D" "$name" "$C_RESET"
     fi
-    # the first public address is where the internet starts: stop there
-    if [[ $cls == public ]]; then reached=1; (( full_trace )) || break; fi
+    # stop once the route is where the user wants to see it get to
+    if [[ $cls == public ]]; then
+      case $trace_stop in
+        public) reached=1; break ;;
+        owner)  if [[ $addr == $target || ( -n $target_as && ${org%% *} == $target_as ) ]]; then reached=1; break; fi ;;
+      esac
+    fi
   done
   mtime "$cache_dir/trace_${target}"; ago $(( EPOCHSECONDS - REPLY ))
   local summary
-  if (( full_trace )); then summary="${shown} hops to ${target}"
-  elif (( reached )); then summary="on the internet after ${shown} hops"
-  else summary="${C_WARN}no public address reached${C_D}"; fi
+  if [[ $trace_stop == owner && -n $target_as ]]; then
+    if (( reached )); then summary="reaches ${target_name} after ${shown} hops"
+    else summary="${C_WARN}${target_name} not reached${C_D} · ${shown} hops shown"; fi
+  elif [[ $trace_stop == public ]]; then
+    if (( reached )); then summary="on the internet after ${shown} hops"
+    else summary="${C_WARN}no public address reached${C_D}"; fi
+  else summary="${shown} hops to ${target}"; fi
   if (( compact )); then
     printf "  %s%s · traced %s%s\n" "$C_D" "$summary" "$REPLY" "$C_RESET"
   else
