@@ -34,6 +34,7 @@ BASHRC="$HOME/.bashrc"
 
 if [ "$ACTION" = uninstall ]; then
   remove_block "$ZSHRC"; remove_block "$BASHRC"
+  rm -f "$HOME/.local/bin/vicks-deploy"
   echo "Removed the vicks block from your shell startup files. Open a new terminal."
   exit 0
 fi
@@ -72,7 +73,11 @@ else
     elif command -v apk     >/dev/null 2>&1; then pkgs=${missing/ dig/ bind-tools}; cmd="${SUDO}apk add$pkgs"
     else cmd=""; fi
     echo "Missing tools:$missing"
-    if [ -z "$cmd" ]; then
+    if [ -n "$SUDO" ] && ! command -v sudo >/dev/null 2>&1; then
+      # locked-down machines and containers: packages have to come from whoever builds the machine
+      echo "This account cannot install packages (no sudo here)."
+      echo "Add these packages to the machine or its image, then run this again:${pkgs:-$missing}"
+    elif [ -z "$cmd" ]; then
       echo "No known package manager found. Install them by hand, then run this again."
     elif confirm "Install them now with: $cmd ?"; then
       sh -c "$cmd" || echo "Package install failed. Run it by hand: $cmd"
@@ -107,5 +112,17 @@ touch "$RC"
   echo "$END"
 } >> "$RC"
 
-chmod +x "$REPO/banner.zsh" "$REPO/cockpit.sh" 2>/dev/null
+chmod +x "$REPO/banner.zsh" "$REPO/cockpit.sh" "$REPO/deploy.sh" 2>/dev/null
+
+# ── 3. vicks-deploy as a real command ────────────────────────────────────
+# A small launcher in ~/.local/bin, so it works in every shell, scripts included,
+# and not only in interactive terminals where the shell functions are loaded.
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\nexec bash "%s/deploy.sh" "$@"\n' "$REPO" > "$HOME/.local/bin/vicks-deploy"
+chmod +x "$HOME/.local/bin/vicks-deploy"
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) echo "Note: ~/.local/bin is not on your PATH in this shell; new terminals add it." ;;
+esac
+
 echo "Installed into $RC. Open a new terminal (or log in again) to see it."

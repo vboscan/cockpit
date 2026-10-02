@@ -106,6 +106,7 @@ vicks-deploy user@host
 ```
 
 This copies the setup to `~/.vicks` on the remote machine over SSH and runs the installer there.
+`vicks-deploy` is a real command in `~/.local/bin`, so it works from any shell.
 Log in with `ssh user@host` afterwards and the banner is pinned on that machine too.
 
 - **A different ship:** any shell reached over SSH shows a TIE fighter instead of the X-wing, plus a "Remote" line with the host name. One glance tells you which machine a window is on.
@@ -113,6 +114,7 @@ Log in with `ssh user@host` afterwards and the banner is pinned on that machine 
 - **One banner at a time:** when you `ssh` from the cockpit to a machine you deployed to, the local banner hides for the length of the session and the remote one takes its place. It returns when you log out. Other hosts leave the local banner where it is.
 - **Works with bash:** most Linux servers log in with bash. The installer hooks into `~/.bashrc` there through [vicks.bash](vicks.bash), and your shell stays bash.
 - **Packages:** the remote needs zsh, tmux, jq, curl, traceroute and dig. The installer lists what is missing and asks before installing with `sudo`. It also offers to install Starship into `~/.local/bin`.
+- **No sudo:** on a locked-down machine or container the installer names the packages to add to the machine's image instead. zsh is the one hard requirement; without it the banner cannot run.
 - **Updating:** run `vicks-deploy user@host` again after changing anything here.
 - **Removing:** `vicks-deploy user@host --uninstall`.
 

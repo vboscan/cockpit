@@ -27,7 +27,7 @@ hello() { zsh "$VICKS_HOME/banner.zsh" "$@"; }
 cockpit() { sh "$VICKS_HOME/cockpit.sh" "$@"; }
 
 # `vicks-deploy user@host` copies this setup to a remote machine and installs it there.
-vicks-deploy() { bash "$VICKS_HOME/deploy.sh" "$@"; }
+# It is a real command: install.sh puts a launcher for deploy.sh in ~/.local/bin.
 
 # Inside the cockpit, `ssh` to a machine that vicks-deploy has set up hides the local
 # banner for the length of the session, so the remote machine's banner takes its place.
