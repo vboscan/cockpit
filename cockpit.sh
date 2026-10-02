@@ -1,0 +1,41 @@
+#!/bin/sh
+# cockpit.sh — start the pinned, self-updating banner (tmux with two panes).
+# Shared by vicks.zsh and vicks.bash, so it is plain POSIX sh.
+#
+#   cockpit.sh           banner on top, shell below
+#   cockpit.sh side      banner in a right-hand column
+#   cockpit.sh refresh   look everything up again right now
+
+VICKS_HOME=${VICKS_HOME:-$(cd "$(dirname "$0")" && pwd)}
+layout=${1:-${VICKS_COCKPIT_LAYOUT:-top}}
+
+if [ "$layout" = refresh ]; then
+  # refill the shared cache; every open dashboard shows it on its next redraw
+  zsh "$VICKS_HOME/banner.zsh" --fresh >/dev/null 2>&1
+  echo "Refreshed. Update checks continue in the background."
+  exit 0
+fi
+
+command -v tmux >/dev/null 2>&1 || { echo "cockpit needs tmux. Run $VICKS_HOME/install.sh to install it."; exit 1; }
+command -v zsh  >/dev/null 2>&1 || { echo "cockpit needs zsh. Run $VICKS_HOME/install.sh to install it."; exit 1; }
+if [ -n "${TMUX:-}" ]; then
+  echo "Already inside the cockpit (or another tmux). Try: cockpit refresh"; exit 1
+fi
+
+dash="zsh '$VICKS_HOME/banner.zsh' --dash"
+t() { tmux -L vicks -f "$VICKS_HOME/tmux.conf" "$@"; }
+
+# Shells inside the cockpit must not print their own banner or start a second cockpit.
+# tmux.conf sets these for a new server; this covers a server that is already running.
+t set-environment -g VICKS_NO_BANNER 1 2>/dev/null
+t set-environment -g VICKS_IN_COCKPIT 1 2>/dev/null
+
+# destroy-unattached: closing the terminal (or the SSH connection) ends the session
+# and its dashboard. @vicks_dash marks the banner pane so tmux.conf keeps focus out of it.
+if [ "$layout" = side ]; then
+  t new-session \; set-option destroy-unattached on \; \
+    split-window -h -d -l 66 "$dash --side" \; set-option -p -t '{right}' @vicks_dash 1
+else
+  t new-session \; set-option destroy-unattached on \; \
+    split-window -v -b -d -l 12 "$dash" \; set-option -p -t '{top}' @vicks_dash 1
+fi

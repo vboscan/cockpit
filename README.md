@@ -99,6 +99,31 @@ The layout adapts to the window width.
 - **Scrolling:** the mouse wheel scrolls the shell history. The terminal's own scrollbar does not.
 - **Copying:** drag to select and the text is copied on release. Hold Option while dragging to use the terminal's own selection.
 
+## Remote machines
+
+```bash
+vicks-deploy user@host
+```
+
+This copies the setup to `~/.vicks` on the remote machine over SSH and runs the installer there.
+Log in with `ssh user@host` afterwards and the banner is pinned on that machine too.
+
+- **A different ship:** any shell reached over SSH shows a TIE fighter instead of the X-wing, plus a "Remote" line with the host name. One glance tells you which machine a window is on.
+- **Death Star:** put `export VICKS_REMOTE_ART=deathstar` in the remote's `~/.bashrc` or `~/.zshrc`, above the vicks block. `xwing` and a file path also work.
+- **One banner at a time:** when you `ssh` from the cockpit to a machine you deployed to, the local banner hides for the length of the session and the remote one takes its place. It returns when you log out. Other hosts leave the local banner where it is.
+- **Works with bash:** most Linux servers log in with bash. The installer hooks into `~/.bashrc` there through [vicks.bash](vicks.bash), and your shell stays bash.
+- **Packages:** the remote needs zsh, tmux, jq, curl, traceroute and dig. The installer lists what is missing and asks before installing with `sudo`. It also offers to install Starship into `~/.local/bin`.
+- **Updating:** run `vicks-deploy user@host` again after changing anything here.
+- **Removing:** `vicks-deploy user@host --uninstall`.
+
+| Option | Effect |
+|---|---|
+| `--deps` | Install missing packages on the remote without asking |
+| `--no-deps` | Never install packages, only list what is missing |
+| `--uninstall` | Remove the shell hook and `~/.vicks` from the remote |
+
+On Linux the banner uses `ip`, `free` and `/proc` in place of the macOS tools, and reports upgradable apt packages and a pending reboot under "OS updates".
+
 ## Commands and settings
 
 | Command or variable | Effect |
@@ -116,6 +141,7 @@ The layout adapts to the window width.
 | `VICKS_TRACE_STOP=owner` | Where the shown route ends. `owner` is the first hop in the target's own network, `public` the first public address, `full` every hop |
 | `VICKS_TOP_N=5` | How many apps each top list shows |
 | `VICKS_ART=/path/to/file` | Use different art |
+| `VICKS_REMOTE_ART=tie` | Ship shown when reached over SSH: `tie`, `deathstar`, `xwing` or a file path |
 
 Set the variables in `~/.zshrc` above the vicks block.
 
@@ -124,6 +150,7 @@ Set the variables in `~/.zshrc` above the vicks block.
 The X-wing lives in [xwing.art](xwing.art). It is classic ASCII art signed "snd".
 The pinned banner uses [xwing-small.art](xwing-small.art), a reduced redraw of the same ship, so the data gets more room.
 `hello` prints the full-size one. Set `VICKS_DASH_ART_FILE` to pin a different file.
+Remote sessions use [tie.art](tie.art) or [deathstar.art](deathstar.art).
 Colour tokens switch colour until the next token.
 
 | Token | Colour |
@@ -134,6 +161,8 @@ Colour tokens switch colour until the next token.
 | `{R}` | Red stripes |
 | `{O}` | Engine orange |
 | `{C}` | Canopy blue |
+| `{S}` | TIE hull steel blue |
+| `{L}` | Imperial laser green |
 | `{Y}` | Star Wars yellow |
 | `{X}` | Reset |
 
@@ -162,13 +191,17 @@ If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws t
 
 | File | Purpose |
 |---|---|
-| `vicks.zsh` | Entry point sourced from `~/.zshrc`. Defines `hello` and `cockpit` |
+| `vicks.zsh` | Entry point for zsh, sourced from `~/.zshrc`. Defines `hello`, `cockpit` and `vicks-deploy` |
+| `vicks.bash` | Entry point for bash, sourced from `~/.bashrc` |
+| `cockpit.sh` | Starts the pinned banner. Shared by both entry points |
+| `deploy.sh` | Copies the setup to a remote machine and installs it there |
 | `banner.zsh` | The welcome banner and the live dashboard |
 | `xwing.art` | The full-size X-wing with colour tokens, used by `hello` |
 | `xwing-small.art` | The smaller X-wing used by the pinned banner |
+| `tie.art`, `deathstar.art` | The ships shown on machines reached over SSH |
 | `starship.toml` | Prompt configuration |
 | `prompt-fallback.zsh` | Prompt without Starship |
 | `tmux.conf` | tmux settings used only by the cockpit |
-| `install.sh` | Installer and uninstaller |
+| `install.sh` | Installer and uninstaller for macOS and Linux |
 
-Built for macOS and zsh. The banner also has Linux code paths, which are untested.
+Built and tested on macOS with zsh and bash. The Linux code paths are written but have not been run on a Linux machine yet.

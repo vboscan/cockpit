@@ -1,14 +1,16 @@
-# vicks.zsh — entry point, sourced from ~/.zshrc (install.sh adds the line).
+# vicks.zsh — entry point for zsh, sourced from ~/.zshrc (install.sh adds the line).
 # Sets up the prompt. Every new terminal then opens in the cockpit: the banner
 # stays pinned at the top and updates itself while commands scroll underneath.
 #
 # Commands:  hello [--fresh|--no-net]   print the full banner once
 #            cockpit [top|side]         start the cockpit by hand
 #            cockpit refresh            look everything up again right now
+#            vicks-deploy user@host     install all of this on a remote machine
 #
 # Settings (export them in ~/.zshrc above the vicks block):
 #   VICKS_AUTO_COCKPIT=0   new terminals show the one-off banner instead of the cockpit
 #   VICKS_COCKPIT_LAYOUT=side   pinned banner in a right-hand column instead of on top
+#   VICKS_REMOTE_ART=deathstar  ship shown when reached over SSH (tie, deathstar, xwing)
 #   VICKS_NO_BANNER=1      no banner at all on new shells
 #   VICKS_NO_NET=1         banner without public IP / traceroute
 
@@ -16,41 +18,31 @@
 
 export VICKS_HOME=${${(%):-%x}:A:h}
 export VIRTUAL_ENV_DISABLE_PROMPT=1   # the prompt shows the venv itself
+[[ -d $HOME/.local/bin && :$PATH: != *:$HOME/.local/bin:* ]] && PATH=$HOME/.local/bin:$PATH
 
 # `hello` prints the banner any time; `hello --fresh` bypasses the network cache.
 hello() { zsh "$VICKS_HOME/banner.zsh" "$@"; }
 
-# `cockpit` opens tmux with the live dashboard in one pane and a shell in the other.
-# Commands scroll in the shell pane; the dashboard stays put and refreshes itself.
-cockpit() {
-  local layout=${1:-${VICKS_COCKPIT_LAYOUT:-top}}
-  if [[ $layout == refresh ]]; then
-    # refill the shared cache; every open dashboard shows it on its next redraw
-    zsh "$VICKS_HOME/banner.zsh" --fresh >/dev/null 2>&1
-    print "Refreshed. Update checks for macOS and Homebrew continue in the background."
-    return 0
+# `cockpit` opens tmux with the live banner in one pane and a shell in the other.
+cockpit() { sh "$VICKS_HOME/cockpit.sh" "$@"; }
+
+# `vicks-deploy user@host` copies this setup to a remote machine and installs it there.
+vicks-deploy() { bash "$VICKS_HOME/deploy.sh" "$@"; }
+
+# Inside the cockpit, `ssh` to a machine that vicks-deploy has set up hides the local
+# banner for the length of the session, so the remote machine's banner takes its place.
+ssh() {
+  if [[ -n ${VICKS_IN_COCKPIT:-} && -n ${TMUX:-} && -t 1 && -r $HOME/.config/vicks/remotes ]]; then
+    local h; h=$(command ssh -G "$@" 2>/dev/null | awk '$1 == "hostname" {print $2; exit}')
+    if [[ -n $h ]] && grep -qxF -- "$h" "$HOME/.config/vicks/remotes"; then
+      local zoomed; zoomed=$(tmux display-message -p '#{window_zoomed_flag}' 2>/dev/null)
+      [[ $zoomed == 1 ]] || tmux resize-pane -Z 2>/dev/null
+      command ssh "$@"; local rc=$?
+      [[ $zoomed == 1 ]] || tmux resize-pane -Z 2>/dev/null
+      return $rc
+    fi
   fi
-  if ! command -v tmux >/dev/null 2>&1; then
-    print "cockpit needs tmux. Install it with: brew install tmux"; return 1
-  fi
-  if [[ -n ${TMUX:-} ]]; then
-    print "Already inside the cockpit (or another tmux). Try: cockpit refresh"; return 1
-  fi
-  local dash="zsh ${(q)VICKS_HOME}/banner.zsh --dash"
-  local -a split
-  local where
-  if [[ $layout == side ]]; then
-    split=(split-window -h -d -l 66 "$dash --side"); where='{right}'   # dashboard on the right
-  else
-    split=(split-window -v -b -d -l 12 "$dash"); where='{top}'         # on top, sizes itself
-  fi
-  # destroy-unattached: closing the terminal window ends the session and its dashboard.
-  # @vicks_dash marks the dashboard pane so tmux.conf can keep focus out of it.
-  tmux -L vicks -f "$VICKS_HOME/tmux.conf" new-session \
-    -e VICKS_NO_BANNER=1 -e VICKS_IN_COCKPIT=1 \; \
-    set-option destroy-unattached on \; \
-    "${split[@]}" \; \
-    set-option -p -t "$where" @vicks_dash 1
+  command ssh "$@"
 }
 
 # ── prompt ───────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@
 #         VICKS_DASH_INTERVAL=5      seconds between dashboard redraws
 #         VICKS_DASH_ART=1           0 = never draw the art in the dashboard
 #         VICKS_DASH_ART_FILE=path   art for the dashboard (default: xwing-small.art)
+#         VICKS_REMOTE_ART=tie       art when reached over SSH: tie, deathstar, xwing or a file path
 #         VICKS_UPDATE_TTL=21600     seconds between macOS / Homebrew update checks
 #         VICKS_TRACE_TARGET=8.8.8.8  where the traceroute is aimed
 #         VICKS_TRACE_STOP=owner     where the shown route ends: owner (first hop in the target's
@@ -37,6 +38,8 @@ local C_D=$'\e[38;5;244m'   # dark grey
 local C_R=$'\e[38;5;196m'   # red stripes (Red Squadron)
 local C_O=$'\e[38;5;208m'   # engine glow (orange)
 local C_C=$'\e[38;5;117m'   # canopy blue
+local C_S=$'\e[38;5;110m'   # TIE hull steel blue
+local C_L=$'\e[38;5;46m'    # Imperial laser green
 local C_B=$'\e[38;5;255m'   # canopy frame white
 local C_Y
 if [[ ${COLORTERM:-} == (truecolor|24bit) ]]; then
@@ -66,12 +69,23 @@ local bar_w=20; (( compact )) && bar_w=14   # usage bar width
 local async=$dash     # dashboard never blocks on a lookup
 
 local here=${0:A:h}
+# A shell reached over SSH is a remote machine: it flies Imperial colours, so one
+# glance tells you which machine a window is on.
+local is_remote=0
+[[ -n ${SSH_CONNECTION:-}${SSH_TTY:-}${VICKS_REMOTE:-} ]] && is_remote=1
 local art=${VICKS_ART:-$here/xwing.art}
-if (( dash )); then
+if (( is_remote )); then
+  case ${VICKS_REMOTE_ART:-tie} in
+    tie)       art=$here/tie.art ;;
+    deathstar) art=$here/deathstar.art ;;
+    xwing)     (( dash )) && art=$here/xwing-small.art ;;
+    *)         art=$VICKS_REMOTE_ART ;;             # a path to your own file
+  esac
+elif (( dash )); then
   # the pinned dashboard uses the smaller X-wing so the data gets more room
   art=${VICKS_DASH_ART_FILE:-$here/xwing-small.art}
-  [[ -r $art ]] || art=${VICKS_ART:-$here/xwing.art}
 fi
+[[ -r $art ]] || art=$here/xwing.art
 local ttl=${VICKS_CACHE_TTL:-600}
 (( dash )) && ttl=${VICKS_DASH_NET_TTL:-120}
 local upd_ttl=${VICKS_UPDATE_TTL:-21600}
@@ -196,6 +210,22 @@ check_macos_updates() {
     print ERR
   fi
 }
+# Linux (apt): counts packages apt already knows are upgradable; no sudo, no network.
+check_linux_updates() {
+  (( $+commands[apt] )) || { print NA; return; }
+  print -r -- "N|$(apt list --upgradable 2>/dev/null | grep -c '\[upgradable')"
+  [[ -f /var/run/reboot-required ]] && print REBOOT
+  return 0
+}
+upd_linux() {
+  local res; res="$(cached -a linux_updates $upd_ttl check_linux_updates)"
+  if [[ -z $res ]]; then print -r -- "${C_D}checking…"; return; fi
+  [[ $res == NA* ]] && return
+  local n=${${(f)res}[1]#N|} s
+  if (( n > 0 )); then s="${C_WARN}⬆ ${n} package(s) upgradable"; else s="${C_OK}✓ packages up to date"; fi
+  [[ $res == *REBOOT* ]] && s+="${C_D} · ${C_BAD}reboot required"
+  print -r -- "$s"
+}
 check_brew() {
   local v; v="$(brew --version 2>/dev/null | head -1)"
   [[ -z $v ]] && { print ERR; return; }
@@ -261,15 +291,21 @@ blk_art() {
       line=${line//\{W\}/$C_W}; line=${line//\{G\}/$C_G}; line=${line//\{D\}/$C_D}
       line=${line//\{R\}/$C_R}; line=${line//\{O\}/$C_O}; line=${line//\{C\}/$C_C}
       line=${line//\{B\}/$C_B}; line=${line//\{Y\}/$C_Y}; line=${line//\{X\}/$C_RESET}
+      line=${line//\{S\}/$C_S}; line=${line//\{L\}/$C_L}
       print -r -- "$indent$line$C_RESET"
     done < "$art"
   fi
   if (( compact )); then
     # kept short so the caption is never wider than the art above it
     print -r -- "${C_Y}${C_BOLD}May the Force be with you.${C_RESET}"
+    (( is_remote )) && print -r -- "${C_WARN}Remote: $(hostname -s)${C_RESET}"
   else
     print
-    print -r -- "  ${C_Y}${C_BOLD}May the Force be with you, ${USER}.${C_RESET}  ${C_D}Red Five standing by on $(hostname -s)${C_RESET}"
+    if (( is_remote )); then
+      print -r -- "  ${C_Y}${C_BOLD}May the Force be with you, ${USER}.${C_RESET}  ${C_WARN}Remote machine $(hostname -s), reached over SSH${C_RESET}"
+    else
+      print -r -- "  ${C_Y}${C_BOLD}May the Force be with you, ${USER}.${C_RESET}  ${C_D}Red Five standing by on $(hostname -s)${C_RESET}"
+    fi
   fi
 }
 
@@ -283,6 +319,9 @@ blk_system() {
     local -a u=("${(@f)$(upd_macos)}")
     kv "OS updates" "$u[1]"
     (( $#u > 1 && ! compact )) && kv "" "$u[2]"
+  else
+    local lu; lu="$(upd_linux)"
+    [[ -n $lu ]] && kv "OS updates" "$lu"
   fi
   kv "Kernel" "$kernel"
   if (( compact )); then kv "Hardware" "${chip:-?} · ${cpus} cores · ${mem_total} GB · ${model:-?}"
@@ -732,7 +771,7 @@ trap 'dash_cleanup; exit 0' INT TERM HUP
 trap 'dash_cleanup' EXIT
 print -n $'\e[?25l\e[?7l\e[2J'      # hide cursor, no line wrap, clear
 
-local key buf last t wh ph want prev_size
+local key buf last t wh ph want prev_size zoomed
 while true; do
   term_size; prev_size="$rows $cols"
   render_dash $cols
@@ -742,8 +781,8 @@ while true; do
 
   # inside tmux as the top pane: grow or shrink the pane to fit the content
   if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] && (( ! side )); then
-    tmux display-message -p -t "$TMUX_PANE" '#{window_height} #{pane_height}' 2>/dev/null | read -r wh ph
-    if [[ -n $wh ]]; then
+    tmux display-message -p -t "$TMUX_PANE" '#{window_height} #{pane_height} #{window_zoomed_flag}' 2>/dev/null | read -r wh ph zoomed
+    if [[ -n $wh && $zoomed != 1 ]]; then
       want=$#out; (( want > wh * 60 / 100 )) && want=$(( wh * 60 / 100 ))
       if (( want != ph && want > 2 )); then
         tmux resize-pane -t "$TMUX_PANE" -y $want 2>/dev/null
