@@ -34,5 +34,5 @@ _vicks_precmd() {
 }
 add-zsh-hook precmd _vicks_precmd
 
-PROMPT=$'\n''%F{240}╭─%f ${_vicks_who}%B%F{39}%~%f%b${vcs_info_msg_0_}${_vicks_venv}'$'\n''%F{240}╰─%f %(?.%B%F{82}.%B%F{196})❯%f%b '
+PROMPT=$'\n''%F{240}╭─%f ${_vicks_who}%B%F{39}%~%f%b${vcs_info_msg_0_}${_vicks_venv}'$'\n''%F{240}╰─%f %(?.%B%F{82}.%B%F{196})➜%f%b '
 RPROMPT='%(?..%B%F{196}✘ %?%f%b )%F{220}%D{%a %d %b %H:%M:%S}%f'
