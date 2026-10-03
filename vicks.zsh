@@ -14,6 +14,7 @@
 #   VICKS_REMOTE_ART=deathstar  ship shown when reached over SSH (tie, deathstar, xwing)
 #   VICKS_NO_BANNER=1      no banner at all on new shells
 #   VICKS_NO_NET=1         banner without public IP / traceroute
+#   VICKS_CLAUDE_COLOR=blue     colour of every new Claude Code session (unset: random, 0: none)
 
 [[ -o interactive ]] || return 0
 
@@ -51,6 +52,27 @@ cockpit() { sh "$VICKS_HOME/cockpit.sh" "$@"; }
 
 # `vicks-deploy user@host` copies this setup to a remote machine and installs it there.
 # It is a real command: install.sh puts a launcher for deploy.sh in ~/.local/bin.
+
+# `claude` gives every new session a colour. Claude Code has no setting for that, so a
+# new interactive session gets /color as its first prompt, which picks a random colour
+# and costs no turn. Everything else runs as typed: a prompt, a subcommand, -p, and
+# resumed sessions, which keep the colour they had.
+claude() {
+  local a skip="" color=${VICKS_CLAUDE_COLOR:-}
+  if [[ $color == 0 || ! -t 0 || ! -t 1 ]]; then command claude "$@"; return; fi
+  for a in "$@"; do
+    if [[ -n $skip ]]; then skip=""; continue; fi
+    case $a in
+      --model|--effort|--permission-mode|--settings|--agent|--name|-n) skip=1 ;;   # flags that take one value
+      -p|--print|-c|--continue|-r|--resume*|--from-pr*|--teleport*|--cloud*|--bg|--background|--desktop| \
+      --safe-mode|--disable-slash-commands|-h|--help|-v|--version|--) command claude "$@"; return ;;
+      -*) ;;
+      *) command claude "$@"; return ;;   # a prompt, a subcommand, or the value of a flag not listed above
+    esac
+  done
+  if [[ -n $skip ]]; then command claude "$@"; return; fi
+  command claude "$@" -- "/color${color:+ $color}"
+}
 
 # ── sidebar labels ───────────────────────────────────────────────────────
 # Tell tmux which project this pane is in. tmux.conf turns that into the terminal
