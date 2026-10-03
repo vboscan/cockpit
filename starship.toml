@@ -133,6 +133,8 @@ style = "220"                       # Star Wars yellow
 format = "[$time]($style)"
 
 [character]
-success_symbol = " [❯](bold 82)"
-error_symbol   = " [❯](bold 196)"
+# ➜ and not ❯: Claude Code draws ❯ on its input line, and scripts that drive Claude in
+# tmux wait for that character, so a shell prompt must never show it.
+success_symbol = " [➜](bold 82)"
+error_symbol   = " [➜](bold 196)"
 vimcmd_symbol  = " [❮](bold 82)"

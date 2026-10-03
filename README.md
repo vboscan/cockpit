@@ -381,7 +381,7 @@ Colour tokens switch colour until the next token.
 
 ```
 ╭─ vicky ~/Git/vicks-prompt-hello-world/src git:main +1 !2 ?3 ⇡1 🐍 (myproject) v3.13.1     Fri 02 Oct 17:30:12
-╰─ ❯
+╰─ ➜
 ```
 
 | Part | Meaning |
@@ -395,7 +395,7 @@ Colour tokens switch colour until the next token.
 | `🐍 (name) v3.x` | Active virtual environment from venv, uv, virtualenv or conda, and the Python version |
 | `○ venv not active` | A `.venv` folder exists here but is not activated |
 | Right side | How long the last command took, its exit code if it failed, then local day and time |
-| `❯` | Green after success, red after a failure |
+| `➜` | Green after success, red after a failure |
 
 The prompt is configured in [starship.toml](starship.toml).
 If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws the same layout in plain zsh.
