@@ -6,10 +6,15 @@
 # Commands and settings are the same as in vicks.zsh:
 #   hello, cockpit, cockpit refresh
 #   VICKS_PLAIN=1, VICKS_AUTO_COCKPIT=0, VICKS_COCKPIT_LAYOUT=side, VICKS_REMOTE_ART=deathstar,
-#   VICKS_NO_BANNER=1, VICKS_NO_NET=1, VICKS_CLAUDE_COLOR=blue
+#   VICKS_NO_BANNER=1, VICKS_NO_NET=1, VICKS_CLAUDE_COLOR=blue, VICKS_OWN_TMUX_ONLY=1
 #   (export them in ~/.bashrc above the vicks block)
 
 case $- in *i*) ;; *) return 0 ;; esac
+
+# VICKS_OWN_TMUX_ONLY=1 keeps all of this out of tmux panes that are not the cockpit's.
+# For machines where scripts drive other tmux sessions by typing into them and reading
+# the screen (agent loops): a banner, a new prompt or the claude wrapper would break those.
+if [ -n "${VICKS_OWN_TMUX_ONLY:-}" ] && [ -n "${TMUX:-}" ] && [ -z "${VICKS_IN_COCKPIT:-}" ]; then return 0; fi
 
 VICKS_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export VICKS_HOME
