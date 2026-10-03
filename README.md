@@ -1,4 +1,6 @@
-# vicks-prompt-hello-world
+# cockpit
+
+The cockpit and cmux configuration repository.
 
 A Star Wars welcome banner, a live system dashboard and a colour-coded prompt for zsh.
 
@@ -9,8 +11,8 @@ The banner stays pinned at the top of the window and keeps itself up to date whi
 ## Install
 
 ```bash
-git clone https://github.com/vboscan/vicks-prompt-hello-world.git
-cd vicks-prompt-hello-world
+git clone https://github.com/vboscan/cockpit.git
+cd cockpit
 ./install.sh
 ```
 
@@ -20,7 +22,7 @@ The installer does six things:
 2. Installs [tmux](https://github.com/tmux/tmux) and `iperf3` with Homebrew if they are missing. The cockpit needs tmux, and the Tailscale speed test needs iperf3.
 3. Adds one marked block to `~/.zshrc` that sources `vicks.zsh` from this folder.
 4. If a Ghostty or cmux configuration file exists, adds one marked block to it that makes Cmd+K work with the pinned banner.
-5. If Claude Code is set up (`~/.claude` exists), installs the `/btw` side pane: a skill, one hook in `~/.claude/settings.json` and one marked block in `~/.claude/CLAUDE.md`. See [Claude Code in the cockpit](#claude-code-in-the-cockpit).
+5. If Claude Code is set up (`~/.claude` exists), installs the `/btw` side pane: a skill, one hook in `~/.claude/settings.json` and one marked block in `~/.claude/CLAUDE.md`. It also turns on Remote Control for every session. See [Claude Code in the cockpit](#claude-code-in-the-cockpit).
 
 6. If cmux is set up, adds two browser shortcuts to `~/.config/cmux/cmux.json`, unless that file already has its own shortcuts.
 
@@ -34,7 +36,7 @@ Remove all of it again with `./install.sh --uninstall`.
 | System | Host, OS version and build, pending macOS updates, kernel, hardware, outdated Homebrew packages, uptime |
 | Who is here | Every logged-in user with session count, remote logins, your last login |
 | Attention | Optional. What a headless Claude run thinks needs you, colour-coded by severity |
-| Resources | CPU, memory and disk bars, load averages, battery, process count |
+| Resources | CPU, memory, disk and GPU bars, load averages, the process using the GPU most, process count |
 | Top apps | The five biggest consumers of CPU and the five biggest consumers of memory, side by side |
 | Now playing | While [ncspot](https://github.com/hrkfdn/ncspot) runs: the current track and artist, the next track, and the playlist |
 | Network | Interface and Wi-Fi name, private IP, gateway, other IPs, DNS, public IP, ISP, NAT, internet speed |
@@ -94,14 +96,20 @@ While ncspot, a terminal Spotify client, is running, the banner shows what it is
 ```
 NOW PLAYING ncspot · 1:12/3:06 ─────────────────
   ▶ Fight Like A Girl (feat. K.Flay) · Evanescence, K.Flay
+  Controls     « prev  ·  ‖ pause  ·  next »  ·  open ↗
   Next         Starburster · Fontaines D.C.
   Playlist     Brussels Rock Night with Imagine Dragons · 138/142
+  Volume       100% · shuffle off · repeat off
 ```
 
 - **Current track, artist and progress** come live from ncspot's socket. `▶` is playing, `‖` paused, `■` stopped.
 - **The playlist and the next track are worked out, not reported.** ncspot does not publish its queue. The banner looks the current track up in ncspot's local cache of your playlists, saved albums and liked songs, and takes the track that follows it there.
 - **A `?` marks a guess.** It appears when the last track change did not follow the list order, which happens with shuffle, after you jump to a track by hand, and for the first track the banner sees. When a track is in several playlists, the one where the previous track sits right before it is chosen.
 - **Not in your library:** a track from search or from someone else's playlist shows its album, and the next track as unknown.
+- **Clickable in the pinned banner:** `« prev`, `▶ play` / `‖ pause` and `next »` on the Controls line, and `shuffle` and `repeat` on the Volume line. A click on repeat steps through off, queue and track. tmux turns the click into a key press for the banner (`<`, `p`, `>`, `o`, `z`, `l`), and the banner acts on it. Focus stays in your shell. Needs tmux 3.1 or newer.
+- **`open ↗` shows ncspot itself in a new terminal**, to browse your library and pick songs: a new terminal tab in cmux, a new tmux window elsewhere. ncspot runs in its own background tmux server, so the terminal is only a view. Close it and the music keeps playing; pressing `q` inside it quits ncspot. If ncspot is not running, this starts it.
+- **Volume, shuffle and repeat** are read from ncspot's own status bar, so they only appear when ncspot runs in its background tmux session (server name `ncspot`, or `VICKS_NCSPOT_TMUX`).
+- **Which list is named:** your playlists come first, then Liked Songs, and a saved album only when no playlist fits. A playlist is certain when the track sits at the position ncspot reports for it; otherwise the list where the previous track comes right before it wins.
 - The section disappears when ncspot is not running. `VICKS_MUSIC=0` hides it for good. It is never sent to the Claude check.
 
 ### Rotating tips
@@ -134,7 +142,7 @@ They never run on a redraw, and their results appear in the banner when they fin
 
 | Data | Refresh |
 |---|---|
-| CPU, memory, disk, battery, users, now playing | Every time |
+| CPU, memory, disk, GPU, users, now playing | Every time |
 | Tailscale | Every 20 seconds |
 | Public IP and traceroute | Every 10 minutes in the banner, every 2 minutes in the cockpit |
 | macOS and Homebrew updates | Every 6 hours, checked in the background |
@@ -249,6 +257,40 @@ The skill replaces Claude Code's built-in `/btw` overlay. `./install.sh --uninst
 
 cmux gives each terminal its own identifiers, such as `CMUX_WORKSPACE_ID`. Each cockpit session takes them from the terminal that opened it, so `cmux` commands run inside the cockpit act on the right workspace.
 
+### A colour and Remote Control for every session
+
+Every new Claude Code session starts as if you had typed `/color` and `/rc`.
+
+- **Remote Control** is a setting. The installer adds `"remoteControlAtStartup": true` to `~/.claude/settings.json`, unless the file already sets it either way. Each session can then be driven from claude.ai and the Claude mobile app. This also applies on machines set up with `vicks-deploy`. `./install.sh --uninstall` removes the setting again.
+- **The colour** has no setting in Claude Code, so the `claude` shell function in `vicks.zsh` and `vicks.bash` starts a new interactive session with `/color` as its first prompt. That picks a random colour and costs no turn.
+
+| You type | What runs |
+|---|---|
+| `claude` | `claude -- /color` |
+| `claude --model haiku`, or other flags only | The same flags, then `-- /color` |
+| `claude "fix the bug"`, `claude mcp list`, `claude -p …` | Unchanged. Type `/color` yourself if you want one |
+| `claude --resume`, `claude -c` | Unchanged. A resumed session keeps the colour it had |
+
+| Variable | Effect |
+|---|---|
+| `VICKS_CLAUDE_COLOR=blue` | Every new session gets this colour: `red`, `blue`, `green`, `yellow`, `purple`, `orange`, `pink` or `cyan` |
+| `VICKS_CLAUDE_COLOR=0` | Leave `claude` alone |
+
+Set the variable in `~/.zshrc` above the vicks block. The function only exists in interactive shells, so sessions started by scripts or by an app, such as `cockpit fix`, get no colour from it.
+
+## Repos and workspaces
+
+[repos.conf](repos.conf) lists your GitHub repos and where each one lives: on this Mac (under `~/Git`), on the remote machine, or both.
+Every 30 minutes the banner runs `repos.zsh` in the background, and the System section shows the result on a "Repos" row.
+
+- **Clones:** a listed repo that is missing gets cloned. On the remote machine this needs `git` with working GitHub credentials.
+- **Updates:** `main` is fast-forwarded to match GitHub. This also works while another branch is checked out.
+- **Never overwritten:** a repo with uncommitted changes on `main`, or with commits that are not on GitHub, is fetched and left alone. The Repos row names it under "needs you".
+- **Workspaces:** every repo gets a cmux workspace, in a "Local" group for this Mac and a "Devbox" group of SSH workspaces for the remote machine. A workspace you close comes back on the next run. Take the repo out of `repos.conf` to stop that.
+- **Full report:** run `repos.zsh` yourself, or read `~/.cache/vicks/repos_report`.
+
+A clone is recognised by its GitHub address, so the folder can have any name.
+
 ## Remote machines
 
 ```bash
@@ -289,6 +331,7 @@ On Linux the banner uses `ip`, `free` and `/proc` in place of the macOS tools, a
 | `VICKS_DASH_NET_TTL=120` | The same for the cockpit |
 | `VICKS_DASH_INTERVAL=5` | Seconds between cockpit redraws |
 | `VICKS_UPDATE_TTL=21600` | Seconds between update checks |
+| `VICKS_REPOS_TTL=1800` | Seconds between repo syncs. See [Repos and workspaces](#repos-and-workspaces) |
 | `VICKS_TRACE_TARGET=8.8.8.8` | Where the traceroute is aimed |
 | `VICKS_TRACE_STOP=owner` | Where the shown route ends. `owner` is the first hop in the target's own network, `public` the first public address, `full` every hop |
 | `VICKS_TOP_N=5` | How many apps each top list shows |
@@ -359,10 +402,13 @@ If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws t
 
 | File | Purpose |
 |---|---|
-| `vicks.zsh` | Entry point for zsh, sourced from `~/.zshrc`. Defines `hello`, `cockpit` and `vicks-deploy` |
+| `vicks.zsh` | Entry point for zsh, sourced from `~/.zshrc`. Defines `hello`, `cockpit`, `vicks-deploy` and the `claude` function that colours new sessions |
 | `vicks.bash` | Entry point for bash, sourced from `~/.bashrc` |
 | `cockpit.sh` | Starts the pinned banner. Shared by both entry points |
 | `deploy.sh` | Copies the setup to a remote machine and installs it there |
+| `repos.conf` | Which GitHub repos live on this Mac and on the remote machine |
+| `repos.zsh` | Syncs those repos and adds a cmux workspace for each |
+| `repos-sync.sh` | The clone-and-fast-forward step, run on each machine by `repos.zsh` |
 | `banner.zsh` | The welcome banner and the live dashboard |
 | `xwing.art` | The full-size X-wing with colour tokens, used by `hello` |
 | `xwing-small.art` | The smaller X-wing used by the pinned banner |
