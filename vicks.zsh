@@ -18,6 +18,11 @@
 
 [[ -o interactive ]] || return 0
 
+# VICKS_OWN_TMUX_ONLY=1 keeps all of this out of tmux panes that are not the cockpit's.
+# For machines where scripts drive other tmux sessions by typing into them and reading
+# the screen (agent loops): a banner, a new prompt or the claude wrapper would break those.
+[[ -n ${VICKS_OWN_TMUX_ONLY:-} && -n ${TMUX:-} && -z ${VICKS_IN_COCKPIT:-} ]] && return 0
+
 export VICKS_HOME=${${(%):-%x}:A:h}
 export VIRTUAL_ENV_DISABLE_PROMPT=1   # the prompt shows the venv itself
 # Who logged in to this terminal: the owner of the terminal device. That stays the

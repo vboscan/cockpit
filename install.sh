@@ -5,6 +5,9 @@
 #   ./install.sh              install; asks before installing packages with sudo
 #   ./install.sh --deps       install missing packages without asking
 #   ./install.sh --no-deps    never install packages, only say what is missing
+#   ./install.sh --no-claude  leave Claude Code alone: no /btw skill or hook, no CLAUDE.md
+#                             block, no Remote Control setting (for machines where
+#                             unattended agents run and must not pick up cockpit habits)
 #   ./install.sh --uninstall  remove the block from ~/.zshrc and ~/.bashrc
 set -uo pipefail
 
@@ -13,10 +16,12 @@ BEGIN="# >>> vicks-prompt-hello-world >>>"
 END="# <<< vicks-prompt-hello-world <<<"
 DEPS=ask
 ACTION=install
+CLAUDE=yes
 for a in "$@"; do
   case $a in
     --deps)      DEPS=yes ;;
     --no-deps)   DEPS=no ;;
+    --no-claude) CLAUDE=no ;;
     --uninstall) ACTION=uninstall ;;
   esac
 done
@@ -209,7 +214,7 @@ esac
 # block tells Claude to show its sub-tasks in tmux panes of the cockpit. Remote Control
 # is switched on for every session. (The session colour needs no install step: the
 # `claude` function in vicks.zsh and vicks.bash sets it.)
-if [ -d "$CLAUDE_DIR" ]; then
+if [ "$CLAUDE" = yes ] && [ -d "$CLAUDE_DIR" ]; then
   mkdir -p "$CLAUDE_DIR/skills/btw"
   cp "$REPO/claude/btw/SKILL.md" "$REPO/claude/btw/btw-side.sh" "$CLAUDE_DIR/skills/btw/"
   chmod +x "$CLAUDE_DIR/skills/btw/btw-side.sh"

@@ -314,6 +314,7 @@ Log in with `ssh user@host` afterwards and the banner is pinned on that machine 
 |---|---|
 | `--deps` | Install missing packages on the remote without asking |
 | `--no-deps` | Never install packages, only list what is missing |
+| `--no-claude` | Leave Claude Code on the remote alone: no `/btw`, no `CLAUDE.md` block, no Remote Control setting |
 | `--uninstall` | Remove the shell hook and `~/.vicks` from the remote |
 
 On Linux the banner uses `ip`, `free` and `/proc` in place of the macOS tools, and reports upgradable apt packages and a pending reboot under "OS updates".
@@ -330,6 +331,7 @@ On Linux the banner uses `ip`, `free` and `/proc` in place of the macOS tools, a
 | `VICKS_CACHE_TTL=600` | Seconds to cache network results for the banner |
 | `VICKS_DASH_NET_TTL=120` | The same for the cockpit |
 | `VICKS_DASH_INTERVAL=5` | Seconds between cockpit redraws |
+| `VICKS_OWN_TMUX_ONLY=1` | Stay out of tmux panes that are not the cockpit's: no banner, prompt or `claude` wrapper there. For machines where scripts drive other tmux sessions |
 | `VICKS_UPDATE_TTL=21600` | Seconds between update checks |
 | `VICKS_REPOS_TTL=1800` | Seconds between repo syncs. See [Repos and workspaces](#repos-and-workspaces) |
 | `VICKS_TRACE_TARGET=8.8.8.8` | Where the traceroute is aimed |
