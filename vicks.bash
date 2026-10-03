@@ -6,7 +6,8 @@
 # Commands and settings are the same as in vicks.zsh:
 #   hello, cockpit, cockpit refresh
 #   VICKS_PLAIN=1, VICKS_AUTO_COCKPIT=0, VICKS_COCKPIT_LAYOUT=side, VICKS_REMOTE_ART=deathstar,
-#   VICKS_NO_BANNER=1, VICKS_NO_NET=1   (export them in ~/.bashrc above the vicks block)
+#   VICKS_NO_BANNER=1, VICKS_NO_NET=1, VICKS_CLAUDE_COLOR=blue
+#   (export them in ~/.bashrc above the vicks block)
 
 case $- in *i*) ;; *) return 0 ;; esac
 
@@ -35,6 +36,25 @@ unset _vicks_shim_root _vicks_new_path _vicks_ifs _vicks_p
 
 hello()   { zsh "$VICKS_HOME/banner.zsh" "$@"; }
 cockpit() { sh "$VICKS_HOME/cockpit.sh" "$@"; }
+
+# `claude` gives every new interactive session a colour by starting it with /color
+# (see vicks.zsh for the full explanation). Everything else runs as typed.
+claude() {
+  local a skip="" color=${VICKS_CLAUDE_COLOR:-}
+  if [ "$color" = 0 ] || [ ! -t 0 ] || [ ! -t 1 ]; then command claude "$@"; return; fi
+  for a in "$@"; do
+    if [ -n "$skip" ]; then skip=""; continue; fi
+    case $a in
+      --model|--effort|--permission-mode|--settings|--agent|--name|-n) skip=1 ;;   # flags that take one value
+      -p|--print|-c|--continue|-r|--resume*|--from-pr*|--teleport*|--cloud*|--bg|--background|--desktop| \
+      --safe-mode|--disable-slash-commands|-h|--help|-v|--version|--) command claude "$@"; return ;;
+      -*) ;;
+      *) command claude "$@"; return ;;   # a prompt, a subcommand, or the value of a flag not listed above
+    esac
+  done
+  if [ -n "$skip" ]; then command claude "$@"; return; fi
+  command claude "$@" -- "/color${color:+ $color}"
+}
 
 # Cmd+K outside the cockpit: the terminal sends the key code \e[5000~ (see install.sh);
 # clear the screen and the terminal's own scrollback. Inside the cockpit tmux catches it.

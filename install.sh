@@ -33,7 +33,8 @@ remove_block() {   # remove_block <file> [begin-line end-line]
 ZSHRC="${ZDOTDIR:-$HOME}/.zshrc"
 BASHRC="$HOME/.bashrc"
 
-# Claude Code: the /btw skill, its hook in settings.json, and a marked block in CLAUDE.md
+# Claude Code: the /btw skill, its hook and Remote Control in settings.json, and a
+# marked block in CLAUDE.md
 CLAUDE_DIR="$HOME/.claude"
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 CLAUDE_SETTINGS="$CLAUDE_DIR/settings.json"
@@ -52,6 +53,13 @@ remove_btw_hook() {   # take the /btw hook out of settings.json, and the keys it
     && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
 }
 
+remove_remote_control() {   # take remoteControlAtStartup out of settings.json again
+  [ -f "$CLAUDE_SETTINGS" ] && command -v jq >/dev/null 2>&1 || return 0
+  jq -e '.remoteControlAtStartup == true' "$CLAUDE_SETTINGS" >/dev/null 2>&1 || return 0
+  jq 'del(.remoteControlAtStartup)' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" \
+    && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+}
+
 if [ "$ACTION" = uninstall ]; then
   remove_block "$ZSHRC"; remove_block "$BASHRC"
   for f in "$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty" \
@@ -62,6 +70,7 @@ if [ "$ACTION" = uninstall ]; then
   remove_block "$HOME/.config/cmux/cmux.json" "  // >>> vicks-prompt-hello-world >>>" "  // <<< vicks-prompt-hello-world <<<"
   remove_block "$CLAUDE_MD" "$MD_BEGIN" "$MD_END"
   remove_btw_hook
+  remove_remote_control
   rm -f "$CLAUDE_DIR/skills/btw/SKILL.md" "$CLAUDE_DIR/skills/btw/btw-side.sh"
   rmdir "$CLAUDE_DIR/skills/btw" 2>/dev/null
   rm -f "$HOME/.local/bin/vicks-deploy"
@@ -197,7 +206,9 @@ esac
 # ── 4. Claude Code: /btw in a side pane, and how to show work in the cockpit ──
 # Only where Claude Code is set up. The skill takes over the built-in /btw; the hook
 # opens the side pane without the asking session spending a turn on it; the CLAUDE.md
-# block tells Claude to show its sub-tasks in tmux panes of the cockpit.
+# block tells Claude to show its sub-tasks in tmux panes of the cockpit. Remote Control
+# is switched on for every session. (The session colour needs no install step: the
+# `claude` function in vicks.zsh and vicks.bash sets it.)
 if [ -d "$CLAUDE_DIR" ]; then
   mkdir -p "$CLAUDE_DIR/skills/btw"
   cp "$REPO/claude/btw/SKILL.md" "$REPO/claude/btw/btw-side.sh" "$CLAUDE_DIR/skills/btw/"
@@ -221,6 +232,15 @@ if [ -d "$CLAUDE_DIR" ]; then
     else
       rm -f "$CLAUDE_SETTINGS.tmp"
       echo "Could not read $CLAUDE_SETTINGS, so the /btw hook was not added."
+    fi
+    # Remote Control (/rc) in every session, unless settings.json already says either way
+    if jq -e 'has("remoteControlAtStartup") | not' "$CLAUDE_SETTINGS" >/dev/null 2>&1; then
+      if jq '.remoteControlAtStartup = true' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp"; then
+        mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+        echo "Claude Code: Remote Control is now on for every session (remoteControlAtStartup in $CLAUDE_SETTINGS)."
+      else
+        rm -f "$CLAUDE_SETTINGS.tmp"
+      fi
     fi
   fi
   echo "Claude Code: /btw now opens a side pane. Restart running Claude sessions to pick it up."
