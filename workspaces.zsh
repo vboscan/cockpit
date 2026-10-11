@@ -24,7 +24,7 @@
 # connection changes). It only writes a pill when its value changed, or after cmux
 # restarted. cmux's own SSH details stay as they are; the pill adds the colour.
 typeset -g here=${0:A:h}
-typeset -g REMOTE_GROUP=vicks-repos-remote     # the group's external id, set by repos.zsh
+typeset -g REMOTE_GROUP=vicks-repos-remote     # external id (prefix) of the remote machine's folders, set by repos.zsh
 typeset -g PILL=vicks-link
 # bright, far-apart hues: no red or green (connection state), no gold or grey (groups)
 typeset -ga REPO_COLORS=("#339AF0" "#FD7E14" "#CC5DE8" "#15AABF" "#F06595" "#7048E8" "#A0785A" "#F8F9FA" "#0B7285")
@@ -56,7 +56,7 @@ adopt() {
   ref=$(jq -r .ref <<< "$ws")
   groups=$(cmux workspace-group list --json 2>/dev/null) || return 0
   IFS='|' read -r group anchor <<< "$(jq -r --arg x "$REMOTE_GROUP" --arg r "$ref" '.groups[]
-    | select(.external_id == $x and (.member_workspace_refs | index($r)))
+    | select((.external_id // "" | startswith($x)) and (.member_workspace_refs | index($r)))
     | "\(.ref)|\(.anchor_workspace_ref)"' <<< "$groups")"
   [[ -n $group && $ref != $anchor ]] || { log "adopt $id: $ref not in the remote group (or its header)"; return 0; }
   # only a fresh workspace: its one terminal is the one starting now. Closing it needs
@@ -95,7 +95,7 @@ colour() {
     words=(${=line%%\#*}); (( $#words )) || continue
     if [[ $words[1] == remote ]]; then remote_name=${${words[2]#*@}%%.*}; continue; fi
     name=${words[1]##*/}; repos+=($name)
-    for w in $words[2,-1]; do machines[$name]+=" $w"; done
+    for w in $words[2,-1]; do [[ $w == (local|remote) ]] && machines[$name]+=" $w"; done
   done
 
   # a repo takes the first colour no repo on any of its machines has yet
@@ -126,6 +126,7 @@ colour() {
   for r in "${(@f)$(jq -r '.groups[] | "\(.ref)|\(.external_id // "")|\(.custom_color // "")"' <<< "$groups")}"; do
     IFS='|' read -r ref gid cur <<< "$r"
     c=${GROUP_COLORS[$gid]}
+    [[ -z $c && $gid == $REMOTE_GROUP-* ]] && c=${GROUP_COLORS[$REMOTE_GROUP]}   # project folders
     [[ -n $c && ${(U)cur} != ${(U)c} ]] && [[ -z $cur || -n ${ours[(r)${(U)cur}]} ]] || continue
     cmux workspace-group set-color "$ref" --hex "$c" >/dev/null 2>&1
   done

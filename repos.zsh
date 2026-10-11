@@ -37,11 +37,14 @@ mkdir -p "$cache_dir"
 
 local remote="" remote_base="~" line repo
 local -a local_repos remote_repos words
+local -A repo_group                    # repo name -> folder for its remote workspace
+local w
 for line in "${(@f)$(<$conf)}"; do
   words=(${=line%%\#*})
   (( $#words )) || continue
   if [[ $words[1] == remote ]]; then remote=$words[2]; remote_base=${words[3]:-"~"}; continue; fi
   repo=$words[1]
+  for w in $words[2,-1]; do [[ $w == group=?* ]] && repo_group[${repo##*/}]=${w#group=}; done
   (( ${words[(Ie)local]} ))  && local_repos+=($repo)
   (( ${words[(Ie)remote]} )) && remote_repos+=($repo)
 done
@@ -159,11 +162,45 @@ EOF
   done
 }
 
+# place_ws <result-line>...
+# A remote repo with group=<name> in repos.conf has its workspace in a folder of that
+# name (external id vicks-repos-remote-<name>, so it counts as the remote machine's for
+# auto-SSH and colours), placed after the machine's folder. Without group= it goes back
+# to the machine's folder.
+place_ws() {
+  local groups ws r name state detail dir desc gid ref cur main g target
+  groups=$(cmux workspace-group list --json 2>/dev/null) || return
+  ws=$(cmux workspace list --json 2>/dev/null) || return
+  main=$(jq -r '.groups[] | select(.external_id == "vicks-repos-remote") | .ref' <<< "$groups")
+  for r in "$@"; do
+    IFS='|' read -r name state detail dir <<< "$r"
+    [[ -n $dir ]] || continue
+    desc="$name · $remote_name"
+    g=${repo_group[$name]}
+    gid=vicks-repos-remote${g:+-$g}
+    ref=$(jq -r --arg d "$desc" '[.workspaces[] | select(.description == $d)][0].ref // empty' <<< "$ws")
+    [[ -n $ref ]] || continue
+    cur=$(jq -r --arg r "$ref" '[.groups[] | select(.member_workspace_refs | index($r))][0].external_id // empty' <<< "$groups")
+    [[ $cur == $gid ]] && continue
+    if [[ -n $g ]]; then
+      target=$(cmux workspace-group create --name "$g" --external-id "$gid" --cwd "$local_base" --json 2>/dev/null \
+        | jq -r '.group.ref // empty')
+      [[ -n $target ]] || continue
+      [[ -n $main ]] && cmux workspace-group move "$target" --after "$main" >/dev/null 2>&1
+    else
+      target=$main
+    fi
+    [[ -n $target ]] && cmux workspace-group add --group "$target" --workspace "$ref" >/dev/null 2>&1
+    groups=$(cmux workspace-group list --json 2>/dev/null)
+  done
+}
+
 export CMUX_QUIET=1
 if (( use_cmux && $+commands[cmux] && $+commands[jq] )) && cmux workspace list --json >/dev/null 2>&1; then
   ensure_ws Local vicks-repos-local "this Mac" local "${local_out[@]}"
   if [[ -n $remote ]]; then
     ensure_ws "${(C)${remote_name%-<->}}" vicks-repos-remote "$remote_name" remote "${remote_out[@]}"
+    place_ws "${remote_out[@]}"
     recd_ws "${remote_out[@]}"
   fi
   zsh "$here/workspaces.zsh" colour      # repo colours for any workspace just added
