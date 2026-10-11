@@ -35,13 +35,12 @@ done
 mkdir -p "$cache_dir"
 
 local remote="" remote_base="~" line repo
-local -a local_repos remote_repos all_repos words
+local -a local_repos remote_repos words
 for line in "${(@f)$(<$conf)}"; do
   words=(${=line%%\#*})
   (( $#words )) || continue
   if [[ $words[1] == remote ]]; then remote=$words[2]; remote_base=${words[3]:-"~"}; continue; fi
   repo=$words[1]
-  all_repos+=($repo)
   (( ${words[(Ie)local]} ))  && local_repos+=($repo)
   (( ${words[(Ie)remote]} )) && remote_repos+=($repo)
 done
@@ -150,35 +149,6 @@ EOF
   done
 }
 
-# colour_ws: each repo gets one colour, the same on both machines, in repos.conf order;
-# each group header gets its machine's colour. Red and green are left out: on remote
-# workspaces they mean the connection's state (workspaces.zsh). A colour you picked
-# yourself, one that is not on these lists, is kept.
-local -a repo_colors=("#0E6B8C" "#1565C0" "#7B3F00" "#283593" "#AD1457" "#1A5276" "#A04000" "#6A1B9A" "#006B6B" "#880E4F")
-local -A group_colors=(vicks-repos-local "#3E4B5E" vicks-repos-remote "#B8860B")
-colour_ws() {
-  local -A want; local -a ours=(${(U)repo_colors} ${(U)group_colors}); local i r ref desc cur
-  for (( i = 1; i <= $#all_repos; i++ )); do
-    r=${all_repos[i]##*/}
-    want+=("$r · this Mac" "${repo_colors[(i - 1) % $#repo_colors + 1]}")
-    [[ -n $remote ]] && want+=("$r · $remote_name" "${repo_colors[(i - 1) % $#repo_colors + 1]}")
-  done
-  for r in "${(@f)$(cmux workspace list --json 2>/dev/null \
-      | jq -r '.workspaces[] | "\(.ref)|\(.description // "")|\(.custom_color // "")"')}"; do
-    IFS='|' read -r ref desc cur <<< "$r"
-    [[ -n ${want[$desc]} && ${(U)cur} != ${(U)want[$desc]} ]] || continue
-    [[ -z $cur || -n ${ours[(r)${(U)cur}]} ]] || continue
-    cmux workspace-action --workspace "$ref" --action set-color --color "${want[$desc]}" >/dev/null 2>&1
-  done
-  for r in "${(@f)$(cmux workspace-group list --json 2>/dev/null \
-      | jq -r '.groups[] | "\(.ref)|\(.external_id // "")|\(.custom_color // "")"')}"; do
-    IFS='|' read -r ref desc cur <<< "$r"
-    [[ -n ${group_colors[$desc]} && ${(U)cur} != ${(U)group_colors[$desc]} ]] || continue
-    [[ -z $cur || -n ${ours[(r)${(U)cur}]} ]] || continue
-    cmux workspace-group set-color "$ref" --hex "${group_colors[$desc]}" >/dev/null 2>&1
-  done
-}
-
 export CMUX_QUIET=1
 if (( use_cmux && $+commands[cmux] && $+commands[jq] )) && cmux workspace list --json >/dev/null 2>&1; then
   ensure_ws Local vicks-repos-local "this Mac" local "${local_out[@]}"
@@ -186,7 +156,7 @@ if (( use_cmux && $+commands[cmux] && $+commands[jq] )) && cmux workspace list -
     ensure_ws "${(C)${remote_name%-<->}}" vicks-repos-remote "$remote_name" remote "${remote_out[@]}"
     recd_ws "${remote_out[@]}"
   fi
-  colour_ws
+  zsh "$here/workspaces.zsh" colour      # repo colours for any workspace just added
 fi
 
 # ----------------------------------------------------------------- report ---

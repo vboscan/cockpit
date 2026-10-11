@@ -118,7 +118,7 @@ ssh() {
     [[ -n ${TMUX:-} ]] && tmux set-option -p @vicks_ssh "$h" 2>/dev/null
     if [[ -n ${CMUX_WORKSPACE_ID:-} ]] && (( $+commands[cmux] )); then
       key="ssh-${${TMUX_PANE:-$$}#%}"      # one pill per terminal pane
-      CMUX_QUIET=1 cmux set-status "$key" "$h" --icon server.rack --color "#B8860B" --priority 90 \
+      CMUX_QUIET=1 cmux set-status "$key" "$h" --icon server.rack --color "#FAB005" --priority 90 \
         --workspace "$CMUX_WORKSPACE_ID" >/dev/null 2>&1
     fi
     if [[ -n ${VICKS_IN_COCKPIT:-} && -n ${TMUX:-} && -r $HOME/.config/vicks/remotes ]] \
@@ -153,10 +153,10 @@ fi
 
 # ── remote group ─────────────────────────────────────────────────────────
 # A workspace opened in the remote machine's cmux group starts as a local terminal;
-# workspaces.zsh swaps it for a cmux SSH workspace. It closes this terminal's workspace
-# when it is done, hence nohup.
+# workspaces.zsh swaps it for a cmux SSH workspace, then gives any new workspace its
+# colour. The swap closes this terminal's workspace, hence nohup.
 if [[ -n ${CMUX_WORKSPACE_ID:-} && -z ${TMUX:-} && -z ${VICKS_PLAIN:-} ]]; then
-  nohup zsh "$VICKS_HOME/workspaces.zsh" adopt "$CMUX_WORKSPACE_ID" </dev/null >/dev/null 2>&1 &!
+  nohup zsh "$VICKS_HOME/workspaces.zsh" new "$CMUX_WORKSPACE_ID" </dev/null >/dev/null 2>&1 &!
 fi
 
 # ── cockpit or banner ────────────────────────────────────────────────────

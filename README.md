@@ -214,10 +214,10 @@ cmux lists your workspaces in its left sidebar. The setup labels each one so you
 | `⇄ devbox-1 · segundo` | An SSH session is open in that terminal |
 | A gold pill reading `devbox-1` | The workspace has an SSH session to that host. One pill per session |
 | A green `Connected` pill | A remote workspace whose connection is up. Red means it failed, grey that it is connecting |
-| The colour of a workspace | Its repo, the same on this Mac and on the remote machine. The group header has the machine's colour: Charcoal for Local, gold for Devbox |
+| The colour of a workspace | Its repo, the same on this Mac and on the remote machine. The group header has the machine's colour: silver for Local, gold for Devbox |
 
 - **How:** tmux sets the terminal title, which cmux uses as the workspace name. The project part comes from a hook that runs when you change folder. The pill is set by the `ssh` wrapper through `cmux set-status` and cleared when `ssh` returns.
-- **Colours:** red and green only ever mean a connection's state. Repos take the other colours in `repos.conf` order, so with more repos than colours a colour comes round again. A colour you pick yourself is kept.
+- **Colours:** no two repos on the same machine share a colour, and red and green only ever mean a connection's state. Any other workspace gets the colour least used in its group as soon as its first terminal starts, so new workspaces come coloured. A colour you pick yourself is kept. There are nine colours, so a tenth workspace in a group shares one.
 - **Connection pill:** cmux sends no event when a connection changes, so the banner checks every 5 seconds (`VICKS_LINK_TTL`) and only touches a pill whose value changed.
 - **Closed mid-session:** a pill left behind by a terminal that was closed while connected is swept away the next time any terminal opens or closes.
 - **Your own names win.** A workspace you rename with `cmd+shift+r` keeps your name.
@@ -291,7 +291,7 @@ Every 30 minutes the banner runs `repos.zsh` in the background, and the System s
 - **Updates:** `main` is fast-forwarded to match GitHub. This also works while another branch is checked out.
 - **Never overwritten:** a repo with uncommitted changes on `main`, or with commits that are not on GitHub, is fetched and left alone. The Repos row names it under "needs you".
 - **Workspaces:** every repo gets a cmux workspace, in a "Local" group for this Mac and a "Devbox" group of SSH workspaces for the remote machine. A workspace you close comes back on the next run. Take the repo out of `repos.conf` to stop that.
-- **New workspaces in the Devbox group:** a workspace you open there becomes a cmux SSH workspace to the remote machine. It starts as a local terminal, which `workspaces.zsh` swaps for the SSH workspace in the same place within a second or two. The group's header workspace is left as it is.
+- **New workspaces in the Devbox group:** a workspace you open there becomes a cmux SSH workspace to the remote machine. It starts as a local terminal, which `workspaces.zsh` swaps for the SSH workspace in the same place within a second or two, once you are looking at it (cmux starts a workspace's terminal only then). Only a fresh workspace with a single terminal is swapped, and the group's header workspace is left as it is. Each step is logged in `~/.cache/vicks/adopt.log`.
 - **After a reconnect:** cmux starts a remote workspace's new shell in `~`, so the next run sends it back to its repo. It only types the `cd` when that shell is idle at a prompt in `~`, never into a running program.
 - **Remote permissions:** each run also removes group and other write from `~/.local` and `~/.local/state` on the remote machine. cmux refuses to connect while either is group-writable, which a `0002` umask makes them.
 - **Full report:** run `repos.zsh` yourself, or read `~/.cache/vicks/repos_report`.
@@ -418,7 +418,7 @@ If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws t
 | `deploy.sh` | Copies the setup to a remote machine and installs it there |
 | `repos.conf` | Which GitHub repos live on this Mac and on the remote machine |
 | `repos.zsh` | Syncs those repos and adds a cmux workspace for each |
-| `workspaces.zsh` | Turns new workspaces in the Devbox group into SSH workspaces, and keeps the connection pills |
+| `workspaces.zsh` | Turns new workspaces in the Devbox group into SSH workspaces, colours every workspace and group, and keeps the connection pills |
 | `repos-sync.sh` | The clone-and-fast-forward step, run on each machine by `repos.zsh` |
 | `banner.zsh` | The welcome banner and the live dashboard |
 | `xwing.art` | The full-size X-wing with colour tokens, used by `hello` |
