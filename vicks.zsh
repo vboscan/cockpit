@@ -104,7 +104,8 @@ fi
 
 # `ssh` in a terminal marks the session where you can see it:
 #   - the host goes into the terminal title ("⇄ host · project")
-#   - in cmux, the workspace's sidebar row gets a red pill with the host name
+#   - in cmux, the workspace's sidebar row gets a gold pill with the host name (gold is
+#     the remote machine's colour; red is kept for connection failures)
 #   - to a machine that vicks-deploy has set up, the local banner is hidden for the
 #     length of the session, so the remote machine's banner takes its place
 # All of it is undone when ssh returns. `cockpit.sh reconcile` sweeps pills left behind
@@ -117,7 +118,7 @@ ssh() {
     [[ -n ${TMUX:-} ]] && tmux set-option -p @vicks_ssh "$h" 2>/dev/null
     if [[ -n ${CMUX_WORKSPACE_ID:-} ]] && (( $+commands[cmux] )); then
       key="ssh-${${TMUX_PANE:-$$}#%}"      # one pill per terminal pane
-      CMUX_QUIET=1 cmux set-status "$key" "$h" --icon server.rack --color "#ff3b30" --priority 90 \
+      CMUX_QUIET=1 cmux set-status "$key" "$h" --icon server.rack --color "#B8860B" --priority 90 \
         --workspace "$CMUX_WORKSPACE_ID" >/dev/null 2>&1
     fi
     if [[ -n ${VICKS_IN_COCKPIT:-} && -n ${TMUX:-} && -r $HOME/.config/vicks/remotes ]] \
@@ -148,6 +149,14 @@ if command -v starship >/dev/null 2>&1; then
   eval "$(starship init zsh)"
 else
   source "$VICKS_HOME/prompt-fallback.zsh"
+fi
+
+# ── remote group ─────────────────────────────────────────────────────────
+# A workspace opened in the remote machine's cmux group starts as a local terminal;
+# workspaces.zsh swaps it for a cmux SSH workspace. It closes this terminal's workspace
+# when it is done, hence nohup.
+if [[ -n ${CMUX_WORKSPACE_ID:-} && -z ${TMUX:-} && -z ${VICKS_PLAIN:-} ]]; then
+  nohup zsh "$VICKS_HOME/workspaces.zsh" adopt "$CMUX_WORKSPACE_ID" </dev/null >/dev/null 2>&1 &!
 fi
 
 # ── cockpit or banner ────────────────────────────────────────────────────

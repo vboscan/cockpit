@@ -25,6 +25,7 @@
 #         VICKS_REMOTE_ART=tie       art when reached over SSH: tie, deathstar, xwing or a file path
 #         VICKS_UPDATE_TTL=21600     seconds between macOS / Homebrew update checks
 #         VICKS_REPOS_TTL=1800       seconds between runs of repos.zsh (repo sync and cmux workspaces)
+#         VICKS_LINK_TTL=5           seconds between checks of the remote workspaces' connection pills
 #         VICKS_TRACE_TARGET=8.8.8.8  where the traceroute is aimed
 #         VICKS_TRACE_STOP=owner     where the shown route ends: owner (first hop in the target's
 #                                    own network, Google for 8.8.8.8), public (first public address), full
@@ -473,6 +474,10 @@ blk_system() {
   if (( ! is_remote )) && [[ -x $here/repos.zsh && -r $here/repos.conf ]]; then
     local repos; repos="$(cached -a repos_summary ${VICKS_REPOS_TTL:-1800} "$here/repos.zsh" --summary)"
     if [[ -n $repos ]]; then mtime "$cache_dir/repos_summary"; ago $(( EPOCHSECONDS - REPLY )); kv "Repos" "$repos ${C_D}· $REPLY"; fi
+  fi
+  # workspaces.zsh keeps the green/red connection pill on each remote cmux workspace
+  if (( ! is_remote && $+commands[cmux] )) && [[ -x $here/workspaces.zsh ]]; then
+    cached -a ws_link_run ${VICKS_LINK_TTL:-5} "$here/workspaces.zsh" status >/dev/null
   fi
   if (( compact )); then
     # one line: every logged-in user with their session count
