@@ -13,7 +13,8 @@
 # remote host. A workspace is recognised by its description ("cockpit · this Mac"), so
 # renaming one is fine, and one you close comes back on the next run. Nothing is ever
 # closed. A remote workspace that reconnected into ~ is sent back to its repo while its
-# shell sits idle there. cmux only talks to processes started inside it, so this part is skipped when
+# shell sits idle there, and joins the repo's Claude session when the remote machine
+# keeps one in a tmux session of the repo's name. cmux only talks to processes started inside it, so this part is skipped when
 # the script runs from anywhere else.
 typeset -g here=${0:A:h}
 
@@ -36,11 +37,14 @@ mkdir -p "$cache_dir"
 
 local remote="" remote_base="~" line repo
 local -a local_repos remote_repos words
+local -A repo_group                    # repo name -> folder for its remote workspace
+local w
 for line in "${(@f)$(<$conf)}"; do
   words=(${=line%%\#*})
   (( $#words )) || continue
   if [[ $words[1] == remote ]]; then remote=$words[2]; remote_base=${words[3]:-"~"}; continue; fi
   repo=$words[1]
+  for w in $words[2,-1]; do [[ $w == group=?* ]] && repo_group[${repo##*/}]=${w#group=}; done
   (( ${words[(Ie)local]} ))  && local_repos+=($repo)
   (( ${words[(Ie)remote]} )) && remote_repos+=($repo)
 done
@@ -60,6 +64,13 @@ if [[ -n $remote ]] && (( $#remote_repos )); then
 fi
 
 # ------------------------------------------------------------- workspaces ---
+# open_cmd <dir>: what a remote workspace runs to open its repo. The devbox keeps one
+# Claude session per repo in a tmux session named after the checkout; attach to it if
+# there is one. Detaching (Ctrl-b d) leaves a shell in the repo.
+open_cmd() {
+  local n=${(q)1:t}
+  REPLY="cd ${(q)1} && if tmux has-session -t =$n 2>/dev/null; then tmux attach -t =$n; fi"
+}
 # ensure_ws <group-name> <group-id> <label> <kind> <result-line>...
 local -a ws_new
 ensure_ws() {
@@ -80,7 +91,8 @@ ensure_ws() {
         --group "$group" --group-placement end >/dev/null 2>&1 && ws_new+=("$desc")
     else
       # cmux ssh has no group or description flags, so those are set on the new workspace
-      cmux ssh "$remote" --name "$name" --command "cd ${(q)dir}" --no-focus >/dev/null 2>&1 || continue
+      open_cmd "$dir"
+      cmux ssh "$remote" --name "$name" --command "$REPLY" --no-focus >/dev/null 2>&1 || continue
       ref=$(cmux workspace list --json 2>/dev/null | jq -r --arg t "$name" --arg d "$remote" \
         '[.workspaces[] | select(.title == $t and .remote.destination == $d and (.description // "") == "")][0].ref // empty')
       [[ -n $ref ]] || continue
@@ -92,7 +104,7 @@ ensure_ws() {
 }
 # recd_ws <result-line>...
 # A remote workspace's `cd` (the --command above) runs in its first shell only, so after
-# a reconnect cmux starts a fresh shell in ~. This sends the cd again, but only to a
+# a reconnect cmux starts a fresh shell in ~. This sends it again, but only to a
 # workspace with a single terminal whose remote shells are all idle at a prompt in ~:
 # cmux does not say which remote shell a surface shows, and keystrokes must never land
 # in a running program.
@@ -144,8 +156,42 @@ EOF
       ok=1
     done
     (( ok )) || continue
-    cmux send --workspace "$ws" --surface "$surface" "cd ${(q)dir}\n" >/dev/null 2>&1 \
+    open_cmd "$dir"
+    cmux send --workspace "$ws" --surface "$surface" "$REPLY\n" >/dev/null 2>&1 \
       && ws_recd+=("${detail%% · *}")
+  done
+}
+
+# place_ws <result-line>...
+# A remote repo with group=<name> in repos.conf has its workspace in a folder of that
+# name (external id vicks-repos-remote-<name>, so it counts as the remote machine's for
+# auto-SSH and colours), placed after the machine's folder. Without group= it goes back
+# to the machine's folder.
+place_ws() {
+  local groups ws r name state detail dir desc gid ref cur main g target
+  groups=$(cmux workspace-group list --json 2>/dev/null) || return
+  ws=$(cmux workspace list --json 2>/dev/null) || return
+  main=$(jq -r '.groups[] | select(.external_id == "vicks-repos-remote") | .ref' <<< "$groups")
+  for r in "$@"; do
+    IFS='|' read -r name state detail dir <<< "$r"
+    [[ -n $dir ]] || continue
+    desc="$name · $remote_name"
+    g=${repo_group[$name]}
+    gid=vicks-repos-remote${g:+-$g}
+    ref=$(jq -r --arg d "$desc" '[.workspaces[] | select(.description == $d)][0].ref // empty' <<< "$ws")
+    [[ -n $ref ]] || continue
+    cur=$(jq -r --arg r "$ref" '[.groups[] | select(.member_workspace_refs | index($r))][0].external_id // empty' <<< "$groups")
+    [[ $cur == $gid ]] && continue
+    if [[ -n $g ]]; then
+      target=$(cmux workspace-group create --name "$g" --external-id "$gid" --cwd "$local_base" --json 2>/dev/null \
+        | jq -r '.group.ref // empty')
+      [[ -n $target ]] || continue
+      [[ -n $main ]] && cmux workspace-group move "$target" --after "$main" >/dev/null 2>&1
+    else
+      target=$main
+    fi
+    [[ -n $target ]] && cmux workspace-group add --group "$target" --workspace "$ref" >/dev/null 2>&1
+    groups=$(cmux workspace-group list --json 2>/dev/null)
   done
 }
 
@@ -154,8 +200,10 @@ if (( use_cmux && $+commands[cmux] && $+commands[jq] )) && cmux workspace list -
   ensure_ws Local vicks-repos-local "this Mac" local "${local_out[@]}"
   if [[ -n $remote ]]; then
     ensure_ws "${(C)${remote_name%-<->}}" vicks-repos-remote "$remote_name" remote "${remote_out[@]}"
+    place_ws "${remote_out[@]}"
     recd_ws "${remote_out[@]}"
   fi
+  zsh "$here/workspaces.zsh" colour      # repo colours for any workspace just added
 fi
 
 # ----------------------------------------------------------------- report ---
