@@ -38,7 +38,7 @@ COPYFILE_DISABLE=1 tar -C "$REPO" -czf - "${FILES[@]}" \
 
 echo "Running the installer on $HOST ..."
 # -t gives the installer a terminal, so it can ask before installing packages with sudo
-ssh -t "$HOST" "~/.vicks/install.sh $*" || { echo "The remote installer reported a problem."; exit 1; }
+ssh -t "$HOST" "~/.vicks/install.sh --remote $*" || { echo "The remote installer reported a problem."; exit 1; }
 
 # remember this machine: ssh to it from the cockpit then swaps the local banner for the remote one
 if [ -n "$RESOLVED" ]; then
