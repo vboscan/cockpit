@@ -66,10 +66,12 @@ fi
 # ------------------------------------------------------------- workspaces ---
 # open_cmd <dir>: what a remote workspace runs to open its repo. The devbox keeps one
 # Claude session per repo in a tmux session named after the checkout; attach to it if
-# there is one. Detaching (Ctrl-b d) leaves a shell in the repo.
+# there is one. It ends in a login shell, so detaching (Ctrl-b d) leaves a shell in the
+# repo: cmux runs --command as the terminal itself, and when it exits the terminal
+# closes, and with it a workspace that has no other.
 open_cmd() {
   local n=${(q)1:t}
-  REPLY="cd ${(q)1} && if tmux has-session -t =$n 2>/dev/null; then tmux attach -t =$n; fi"
+  REPLY="cd ${(q)1} && if tmux has-session -t =$n 2>/dev/null; then tmux attach -t =$n; fi; exec \"\${SHELL:-/bin/bash}\" -l"
 }
 # ensure_ws <group-name> <group-id> <label> <kind> <result-line>...
 local -a ws_new
@@ -97,6 +99,8 @@ ensure_ws() {
         '[.workspaces[] | select(.title == $t and .remote.destination == $d and (.description // "") == "")][0].ref // empty')
       [[ -n $ref ]] || continue
       cmux workspace-action --workspace "$ref" --action set-description --description "$desc" >/dev/null 2>&1
+      # a name of our own, or the terminal title (tmux sets one) replaces it
+      cmux workspace-action --workspace "$ref" --action rename --title "$name" >/dev/null 2>&1
       cmux workspace-group add --group "$group" --workspace "$ref" >/dev/null 2>&1
       ws_new+=("$desc")
     fi
