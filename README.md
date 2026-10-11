@@ -16,7 +16,7 @@ cd cockpit
 ./install.sh
 ```
 
-The installer does six things:
+The installer does seven things:
 
 1. Installs [Starship](https://starship.rs) with Homebrew if it is missing. It draws the prompt.
 2. Installs [tmux](https://github.com/tmux/tmux) and `iperf3` with Homebrew if they are missing. The cockpit needs tmux, and the Tailscale speed test needs iperf3.
@@ -25,6 +25,11 @@ The installer does six things:
 5. If Claude Code is set up (`~/.claude` exists), installs the `/btw` side pane: a skill, one hook in `~/.claude/settings.json` and one marked block in `~/.claude/CLAUDE.md`. On a remote machine set up with `vicks-deploy` it also turns on Remote Control for every session. See [Claude Code in the cockpit](#claude-code-in-the-cockpit).
 
 6. If cmux is set up, adds two browser shortcuts to `~/.config/cmux/cmux.json`, unless that file already has its own shortcuts.
+7. On a Mac with cmux, adds two groups of cmux settings to the same file, each only if you have not set any of its keys yourself:
+   - **Workspace order:** a workspace moves to the top when an agent there gets a prompt, finishes, needs input or fails (`app.reorderOnNotification`).
+   - **Notification sound:** Frog, played by `afplay`, also while cmux is the app in front. cmux's own sound stays silent there on some Macs ([manaflow-ai/cmux#2801](https://github.com/manaflow-ai/cmux/issues/2801)), so it is switched off in favour of `notifications.command`. Swap `Frog` for any name in `/System/Library/Sounds` to change it.
+
+   Your previous file is kept as `cmux.json.vicks-settings-backup`. `./install.sh --uninstall` leaves these settings in place.
 
 Remove all of it again with `./install.sh --uninstall`.
 
@@ -434,6 +439,7 @@ If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws t
 | `claude/btw/` | The `/btw` skill for Claude Code and the script that opens the side pane |
 | `claude/cockpit-rules.md` | The block added to `~/.claude/CLAUDE.md` |
 | `cmux/shortcuts.jsonc` | The key bindings added to cmux's settings |
+| `cmux/settings.py` | Adds the cmux settings groups (workspace order, notification sound) without touching ones you set |
 | `install.sh` | Installer and uninstaller for macOS and Linux |
 
 Built and tested on macOS with zsh and bash. The Linux code paths are written but have not been run on a Linux machine yet.

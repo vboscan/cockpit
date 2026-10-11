@@ -177,12 +177,24 @@ if [ -f "$CMUX_JSON" ] && [ -f "$REPO/cmux/shortcuts.jsonc" ]; then
     :   # already has shortcuts (ours or yours)
   elif grep -qE '^[[:space:]]*"schemaVersion"' "$CMUX_JSON"; then
     cp "$CMUX_JSON" "$CMUX_JSON.vicks-backup"
+    # schemaVersion gets a comma if it was the last property, so the file stays valid
     awk -v f="$REPO/cmux/shortcuts.jsonc" '
+      !done && /^[[:space:]]*"schemaVersion"/ {
+        if ($0 !~ /,[[:space:]]*(\/\/.*)?$/) sub(/[[:space:]]*$/, ",")
+        print; print ""; while ((getline line < f) > 0) print line; done = 1; next
+      }
       { print }
-      !done && /^[[:space:]]*"schemaVersion"/ { print ""; while ((getline line < f) > 0) print line; done = 1 }
     ' "$CMUX_JSON.vicks-backup" > "$CMUX_JSON"
     echo "cmux: browser split shortcuts added to $CMUX_JSON (cmd+shift+b below, cmd+ctrl+b right)."
   fi
+fi
+
+# ── 1e. cmux settings ────────────────────────────────────────────────────
+# Workspaces move to the top on agent activity, and notifications play Frog through
+# afplay, which also works while cmux is in front (its own sound does not there:
+# manaflow-ai/cmux#2801). See cmux/settings.py; a group you have set either way is kept.
+if [ "$(uname -s)" = Darwin ] && [ -f "$CMUX_JSON" ] && command -v python3 >/dev/null 2>&1; then
+  python3 "$REPO/cmux/settings.py" "$CMUX_JSON"
 fi
 
 # ── 2. hook into the login shell ─────────────────────────────────────────
