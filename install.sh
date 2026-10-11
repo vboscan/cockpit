@@ -8,6 +8,8 @@
 #   ./install.sh --no-claude  leave Claude Code alone: no /btw skill or hook, no CLAUDE.md
 #                             block, no Remote Control setting (for machines where
 #                             unattended agents run and must not pick up cockpit habits)
+#   ./install.sh --remote     this is a remote machine (vicks-deploy passes it): its Claude
+#                             sessions get Remote Control. A local install takes it out.
 #   ./install.sh --uninstall  remove the block from ~/.zshrc and ~/.bashrc
 set -uo pipefail
 
@@ -17,11 +19,13 @@ END="# <<< vicks-prompt-hello-world <<<"
 DEPS=ask
 ACTION=install
 CLAUDE=yes
+REMOTE=no
 for a in "$@"; do
   case $a in
     --deps)      DEPS=yes ;;
     --no-deps)   DEPS=no ;;
     --no-claude) CLAUDE=no ;;
+    --remote)    REMOTE=yes ;;
     --uninstall) ACTION=uninstall ;;
   esac
 done
@@ -212,7 +216,8 @@ esac
 # Only where Claude Code is set up. The skill takes over the built-in /btw; the hook
 # opens the side pane without the asking session spending a turn on it; the CLAUDE.md
 # block tells Claude to show its sub-tasks in tmux panes of the cockpit. Remote Control
-# is switched on for every session. (The session colour needs no install step: the
+# is switched on for every session on a remote machine, and off on this one: sessions
+# here are at hand, those on a remote machine are the ones worth reaching from a phone. (The session colour needs no install step: the
 # `claude` function in vicks.zsh and vicks.bash sets it.)
 if [ "$CLAUDE" = yes ] && [ -d "$CLAUDE_DIR" ]; then
   mkdir -p "$CLAUDE_DIR/skills/btw"
@@ -238,8 +243,14 @@ if [ "$CLAUDE" = yes ] && [ -d "$CLAUDE_DIR" ]; then
       rm -f "$CLAUDE_SETTINGS.tmp"
       echo "Could not read $CLAUDE_SETTINGS, so the /btw hook was not added."
     fi
-    # Remote Control (/rc) in every session, unless settings.json already says either way
-    if jq -e 'has("remoteControlAtStartup") | not' "$CLAUDE_SETTINGS" >/dev/null 2>&1; then
+    # Remote Control (/rc) in every session on a remote machine, unless settings.json
+    # already says either way; on a local machine, taken out again
+    if [ "$REMOTE" = no ]; then
+      if jq -e '.remoteControlAtStartup == true' "$CLAUDE_SETTINGS" >/dev/null 2>&1; then
+        remove_remote_control
+        echo "Claude Code: Remote Control is no longer on for every session here; vicks-deploy turns it on for remote machines."
+      fi
+    elif jq -e 'has("remoteControlAtStartup") | not' "$CLAUDE_SETTINGS" >/dev/null 2>&1; then
       if jq '.remoteControlAtStartup = true' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp"; then
         mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
         echo "Claude Code: Remote Control is now on for every session (remoteControlAtStartup in $CLAUDE_SETTINGS)."

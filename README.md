@@ -22,7 +22,7 @@ The installer does six things:
 2. Installs [tmux](https://github.com/tmux/tmux) and `iperf3` with Homebrew if they are missing. The cockpit needs tmux, and the Tailscale speed test needs iperf3.
 3. Adds one marked block to `~/.zshrc` that sources `vicks.zsh` from this folder.
 4. If a Ghostty or cmux configuration file exists, adds one marked block to it that makes Cmd+K work with the pinned banner.
-5. If Claude Code is set up (`~/.claude` exists), installs the `/btw` side pane: a skill, one hook in `~/.claude/settings.json` and one marked block in `~/.claude/CLAUDE.md`. It also turns on Remote Control for every session. See [Claude Code in the cockpit](#claude-code-in-the-cockpit).
+5. If Claude Code is set up (`~/.claude` exists), installs the `/btw` side pane: a skill, one hook in `~/.claude/settings.json` and one marked block in `~/.claude/CLAUDE.md`. On a remote machine set up with `vicks-deploy` it also turns on Remote Control for every session. See [Claude Code in the cockpit](#claude-code-in-the-cockpit).
 
 6. If cmux is set up, adds two browser shortcuts to `~/.config/cmux/cmux.json`, unless that file already has its own shortcuts.
 
@@ -259,9 +259,9 @@ cmux gives each terminal its own identifiers, such as `CMUX_WORKSPACE_ID`. Each 
 
 ### A colour and Remote Control for every session
 
-Every new Claude Code session starts as if you had typed `/color` and `/rc`.
+Every new Claude Code session starts as if you had typed `/color`, and on a remote machine also `/rc`.
 
-- **Remote Control** is a setting. The installer adds `"remoteControlAtStartup": true` to `~/.claude/settings.json`, unless the file already sets it either way. Each session can then be driven from claude.ai and the Claude mobile app. This also applies on machines set up with `vicks-deploy`. `./install.sh --uninstall` removes the setting again.
+- **Remote Control** is a setting, and only remote machines get it: sessions on this Mac are at hand, those on a remote machine are the ones worth reaching from claude.ai or the Claude mobile app. `vicks-deploy` runs the installer with `--remote`, which adds `"remoteControlAtStartup": true` to that machine's `~/.claude/settings.json` unless the file already sets it either way. A local install takes the setting out if it is on. `./install.sh --uninstall` removes it too.
 - **The colour** has no setting in Claude Code, so the `claude` shell function in `vicks.zsh` and `vicks.bash` starts a new interactive session with `/color` as its first prompt. That picks a random colour and costs no turn.
 
 | You type | What runs |
