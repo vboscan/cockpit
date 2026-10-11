@@ -287,6 +287,8 @@ Every 30 minutes the banner runs `repos.zsh` in the background, and the System s
 - **Updates:** `main` is fast-forwarded to match GitHub. This also works while another branch is checked out.
 - **Never overwritten:** a repo with uncommitted changes on `main`, or with commits that are not on GitHub, is fetched and left alone. The Repos row names it under "needs you".
 - **Workspaces:** every repo gets a cmux workspace, in a "Local" group for this Mac and a "Devbox" group of SSH workspaces for the remote machine. A workspace you close comes back on the next run. Take the repo out of `repos.conf` to stop that.
+- **After a reconnect:** cmux starts a remote workspace's new shell in `~`, so the next run sends it back to its repo. It only types the `cd` when that shell is idle at a prompt in `~`, never into a running program.
+- **Remote permissions:** each run also removes group and other write from `~/.local` and `~/.local/state` on the remote machine. cmux refuses to connect while either is group-writable, which a `0002` umask makes them.
 - **Full report:** run `repos.zsh` yourself, or read `~/.cache/vicks/repos_report`.
 
 A clone is recognised by its GitHub address, so the folder can have any name.
