@@ -1,0 +1,9 @@
+
+# ralph-kit: per-machine loop config (may carry secrets) and runtime state
+.ralph/config.sh
+.ralph/heartbeat.lock
+.ralph/heartbeat.out
+.ralph/relaunches.log
+.ralph/logs/
+.ralph/handoff
+.ralph/operator/

@@ -1,0 +1,63 @@
+name: ci
+
+# The loop's definition of done is "tests green in CI" (AGENTS.md Part A rule 1),
+# and scripts/merge-pr.sh lands a PR once its checks pass. Without a workflow
+# here that sentence is unenforced: PRs merge with no checks configured.
+#
+# Two jobs on purpose. `loop-tooling` is kit-owned and works in any repo with no
+# project knowledge at all. `project` is yours — it is a stub, and until you fill
+# in the toolchain setup it runs your configured commands on a bare runner.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A loop pushes often — checkpoints, gate fixes, confirm rounds. Without this,
+# every superseded push keeps burning runner minutes, and Actions minutes are an
+# account-level budget the loop shares with everything else.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # KIT-OWNED. Do not delete: this is the only thing that runs the loop
+  # scaffolding's own behavioural tests. Language test runners do not see
+  # scripts/ (vitest/jest discover packages, not shell), so without this step the
+  # kit's assertions rot silently and the first sign is a loop that misbehaves.
+  # ---------------------------------------------------------------------------
+  loop-tooling:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gate-marker/merge-pr tests walk real history
+      - name: loop tooling behavioural tests
+        run: |
+          # Discovered by glob, never enumerated — a hand-maintained list is one
+          # more place to forget a test, which is exactly how a gate-marker
+          # suite once went unrun. The empty-glob check is the control: without
+          # it, a step that finds nothing passes and reads as coverage.
+          shopt -s nullglob
+          tests=(scripts/test-*.sh)
+          if [ ${#tests[@]} -eq 0 ]; then echo "::error::no scripts/test-*.sh found"; exit 1; fi
+          for t in "${tests[@]}"; do echo "::group::$t"; bash "$t" || exit 1; echo "::endgroup::"; done
+
+  # ---------------------------------------------------------------------------
+  # YOURS. The commands come from .ralph/config.sh at install time. Add whatever
+  # toolchain setup they need — the commented block below is a Node/pnpm example.
+  # ---------------------------------------------------------------------------
+  project:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # - uses: pnpm/action-setup@v4
+      # - uses: actions/setup-node@v4
+      #   with:
+      #     node-version: 22
+      #     cache: pnpm
+      # - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
