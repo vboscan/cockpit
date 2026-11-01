@@ -3,8 +3,8 @@
   // is taken by macOS (hide/show the Dock). cmd+opt+b stays with the right sidebar.
   "shortcuts": {
     "bindings": {
-      "splitBrowserDown": "cmd+shift+b",
-      "splitBrowserRight": "cmd+ctrl+b"
+      "splitBrowserDown": "cmd+ctrl+b",
+      "splitBrowserRight": "cmd+shift+b"
     }
   },
   // <<< vicks-prompt-hello-world <<<

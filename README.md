@@ -201,11 +201,11 @@ Because the banner is only a pane, moving it never touches a running shell.
 
 | Keys | Action |
 |---|---|
-| `cmd+shift+b` | Browser in a split below |
-| `cmd+ctrl+b` | Browser in a split to the right |
+| `cmd+shift+b` | Browser in a split to the right |
+| `cmd+ctrl+b` | Browser in a split below |
 
 cmux's default for a browser to the right is `cmd+opt+d`, which macOS uses to hide the Dock.
-cmux has no setting for where a new browser opens, so its own "Open browser" key, `cmd+shift+l`, keeps cmux's placement. Use `cmd+shift+b` when you want it below.
+cmux has no setting for where a new browser opens, so its own "Open browser" key, `cmd+shift+l`, keeps cmux's placement. Use `cmd+ctrl+b` when you want it below.
 
 ### Sidebar labels in cmux
 

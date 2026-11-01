@@ -164,6 +164,8 @@ fi
 # for `zsh -c`, not in IDE or app terminal panels, and not when switched off.
 #   - inside cmux: every terminal, whatever its size, so the banner can move between
 #     the terminals of a workspace. `cockpit.sh reconcile` decides which one shows it.
+#     That includes a cmux SSH workspace's terminal on a remote machine
+#     (CMUX_TUI_TERMINAL_ID), which starts at 24x80 until it is first shown.
 #   - anywhere else: only roomy windows (80x30 or more), as before. That keeps tmux out
 #     of small embedded terminals that this file cannot recognise by name.
 _vicks_wants_cockpit() {
@@ -172,7 +174,7 @@ _vicks_wants_cockpit() {
   [[ -z ${TMUX:-} && -z ${VICKS_IN_COCKPIT:-} && -z ${ZSH_EXECUTION_STRING:-} ]] || return 1
   [[ ${TERM_PROGRAM:-} != vscode && -z ${INSIDE_EMACS:-} && ${TERMINAL_EMULATOR:-} != JetBrains* ]] || return 1
   [[ ${__CFBundleIdentifier:-} != com.anthropic.claudefordesktop ]] || return 1   # the Claude app's terminal panel
-  if [[ -z ${CMUX_WORKSPACE_ID:-} ]]; then
+  if [[ -z ${CMUX_WORKSPACE_ID:-}${CMUX_TUI_TERMINAL_ID:-} ]]; then
     (( ${LINES:-0} >= 30 && ${COLUMNS:-0} >= 80 )) || return 1
   fi
   command -v tmux >/dev/null 2>&1
