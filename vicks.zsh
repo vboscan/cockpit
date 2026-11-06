@@ -5,6 +5,7 @@
 # Commands:  hello [--fresh|--no-net]   print the full banner once
 #            cockpit here               move the banner into this terminal
 #            cockpit refresh            look everything up again right now
+#            cockpit smaller / bigger   the banner as a two-line strip, or in full
 #            vicks-deploy user@host     install all of this on a remote machine
 #
 # Settings (export them in ~/.zshrc above the vicks block):

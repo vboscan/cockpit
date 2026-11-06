@@ -43,6 +43,7 @@ Remove all of it again with `./install.sh --uninstall`.
 | Attention | Optional. What a headless Claude run thinks needs you, colour-coded by severity |
 | Resources | CPU, memory, disk and GPU bars, load averages, the process using the GPU most, process count |
 | Top apps | The five biggest consumers of CPU and the five biggest consumers of memory, side by side |
+| Claude usage | Your Claude plan's session and weekly limits, as `/usage` shows them, with when each resets |
 | Now playing | While [ncspot](https://github.com/hrkfdn/ncspot) runs: the current track and artist, the next track, and the playlist |
 | Network | Interface and Wi-Fi name, private IP, gateway, other IPs, DNS, public IP, ISP, NAT, internet speed |
 | Tailscale | Connection state, tailnet, this device, exit node, every peer with online state, speed to one peer |
@@ -94,6 +95,25 @@ The heading takes the colour of the worst finding, so one glance is enough.
 - **What leaves the machine:** the snapshot goes to Anthropic through Claude Code. It contains what the banner shows, including host name, user names, IP addresses, Wi-Fi name, app names and Tailscale peers.
 - **Opt-in:** it is off unless `VICKS_REVIEW=1` is set, and it needs the `claude` command.
 
+### Claude usage
+
+When Claude Code is signed in with a Claude account (Pro or Max), the banner shows how much of the plan's limits you have used.
+
+```
+CLAUDE USAGE Max 20x · 2m ago ──────────────────
+  Session      ░░░░░░░░░░░░░░   2%  resets in 4h 20m
+  Week         █░░░░░░░░░░░░░   8%  resets Fri 01:00
+  Week · Fable █░░░░░░░░░░░░░  13%  resets Fri 01:00
+  This week    Claude Code 90% · Chats 8% · Cowork 2%
+```
+
+- **The same numbers as `/usage`.** They come from the endpoint Claude Code's `/usage` reads, so they cover all your Claude use: Claude Code, claude.ai chats and Cowork. Each limit the plan has gets a row, including per-model weekly limits.
+- **Bars** turn orange at 70% and red at 90%. A reset less than a day away is shown as a countdown, a later one as a day and time.
+- **The login is Claude Code's own.** The banner reads it from the macOS keychain, or from `~/.claude/.credentials.json` on Linux, and never refreshes it. If it has expired, the section says so; starting `claude` renews it.
+- **The token stays private.** It is passed to `curl` on stdin, so it never appears in a process list, and only the percentages are cached.
+- **Remote machines** show the plan of the account Claude Code is signed in to there.
+- The pinned banner leaves out the "This week" row. The section is hidden when Claude Code is not installed or uses an API key. `VICKS_CLAUDE_USAGE=0` hides it for good. It is never sent to the Claude check.
+
 ### Now playing
 
 While ncspot, a terminal Spotify client, is running, the banner shows what it is playing.
@@ -117,14 +137,18 @@ NOW PLAYING ncspot · 1:12/3:06 ────────────────
 - **Which list is named:** your playlists come first, then Liked Songs, and a saved album only when no playlist fits. A playlist is certain when the track sits at the position ncspot reports for it; otherwise the list where the previous track comes right before it wins.
 - The section disappears when ncspot is not running. `VICKS_MUSIC=0` hides it for good. It is never sent to the Claude check.
 
-### Rotating tips
+### cmux shortcuts
 
-Under the X-wing, the banner shows five cmux shortcuts and commands at a time and moves to the next five every 30 seconds.
-The list has 65 tips in thirteen themed pages, from getting around and tabs through to cmux commands and this banner's own commands.
+Under the X-wing, one line reads `CMUX SHORTCUTS open ↗`. Click `open ↗` and cmux opens its Settings on Keyboard Shortcuts, the same as running `cmux shortcuts`. The one-off banner prints the command instead.
+It shows on machines that have cmux, and not over SSH. `VICKS_TIPS=0` hides it.
 
-- **The list is a text file:** [cmux-tips.txt](cmux-tips.txt), one `shortcut | description` per line. Edit it freely; changes show on the next redraw.
-- **Shortcuts are cmux's defaults,** checked against cmux's [published shortcut data](https://cmux.com/docs/keyboard-shortcuts). If you rebind one in `~/.config/cmux/cmux.json`, or cmux changes a default, update its line in the file.
-- **Where it appears:** on machines that have cmux, and not over SSH. In windows too narrow for the X-wing it becomes an ordinary section.
+### Small view
+
+The pinned banner has a two-line view for when screen room matters more than detail: CPU, memory, disk, GPU and Claude usage on the first line; network, speed, Tailscale, the Claude check and what is playing on the second.
+
+- **Click `▾ smaller`** in the top right corner to switch to it, and **`▴ bigger`**, in the same corner, to go back. `cockpit smaller` and `cockpit bigger` do the same from the shell.
+- **One setting for every banner:** all of them switch together, and new ones open in the view you chose last. `VICKS_DASH_VIEW=small` makes the small view the starting point.
+- The right-hand column (`VICKS_COCKPIT_LAYOUT=side`) is full height anyway, so it always shows the full view.
 
 ### Speed tests
 
@@ -152,6 +176,7 @@ They never run on a redraw, and their results appear in the banner when they fin
 | Public IP and traceroute | Every 10 minutes in the banner, every 2 minutes in the cockpit |
 | macOS and Homebrew updates | Every 6 hours, checked in the background |
 | Claude check | Every hour, in the background |
+| Claude usage | Every 5 minutes, in the background |
 | Speed tests | Once per new terminal window |
 
 The update checks take several seconds, so they never block the terminal.
@@ -177,6 +202,7 @@ Your shell runs underneath it, so commands and their output scroll below the ban
 |---|---|
 | `cockpit here` | Move this workspace's banner into the current terminal |
 | `cockpit refresh` | Look everything up again right now |
+| `cockpit smaller` / `cockpit bigger` | Switch the banner to its two-line view, or back to the full one. See [Small view](#small-view) |
 | `cockpit speedtest` | Run the internet and Tailscale speed tests again right now |
 | `hello` | Print the full, long-form banner once in the shell |
 | `export VICKS_COCKPIT_LAYOUT=side` | Pin the banner in a right-hand column instead of on top |
@@ -361,11 +387,11 @@ On Linux the banner uses `ip`, `free` and `/proc` in place of the macOS tools, a
 | `VICKS_REVIEW_TTL=3600` | Seconds between checks |
 | `VICKS_REVIEW_MODEL=haiku` | Model used for the check |
 | `VICKS_IPERF_HOST=user@host` | Tailscale peer for the `iperf3` test. Unset means no Tailscale test |
+| `VICKS_CLAUDE_USAGE=0` | Hide the Claude usage section |
+| `VICKS_CLAUDE_TTL=300` | Seconds between lookups of the Claude usage |
 | `VICKS_MUSIC=0` | Hide the ncspot now-playing section |
-| `VICKS_TIPS=0` | Hide the rotating tips |
-| `VICKS_TIPS_SECONDS=30` | How long each page of tips stays up |
-| `VICKS_TIPS_COUNT=5` | Tips per page |
-| `VICKS_TIPS_FILE=/path/to/file` | Use your own tips file |
+| `VICKS_TIPS=0` | Hide the CMUX SHORTCUTS line |
+| `VICKS_DASH_VIEW=small` | Start the pinned banner in its two-line view |
 | `VICKS_ART=/path/to/file` | Use different art |
 | `VICKS_REMOTE_ART=tie` | Ship shown when reached over SSH: `tie`, `deathstar`, `xwing` or a file path |
 
@@ -432,7 +458,6 @@ If Starship is not installed, [prompt-fallback.zsh](prompt-fallback.zsh) draws t
 | `xwing.art` | The full-size X-wing with colour tokens, used by `hello` |
 | `xwing-small.art` | The smaller X-wing used by the pinned banner |
 | `tie.art`, `deathstar.art` | The ships shown on machines reached over SSH |
-| `cmux-tips.txt` | The rotating tips: cmux shortcuts and commands |
 | `starship.toml` | Prompt configuration |
 | `prompt-fallback.zsh` | Prompt without Starship |
 | `tmux.conf` | tmux settings used only by the cockpit |

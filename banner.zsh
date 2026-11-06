@@ -22,6 +22,7 @@
 #         VICKS_DASH_INTERVAL=5      seconds between dashboard redraws
 #         VICKS_DASH_ART=1           0 = never draw the art in the dashboard
 #         VICKS_DASH_ART_FILE=path   art for the dashboard (default: xwing-small.art)
+#         VICKS_DASH_VIEW=small      start in the two-line view until "▾ smaller" / "▴ bigger" is used
 #         VICKS_REMOTE_ART=tie       art when reached over SSH: tie, deathstar, xwing or a file path
 #         VICKS_UPDATE_TTL=21600     seconds between macOS / Homebrew update checks
 #         VICKS_REPOS_TTL=1800       seconds between runs of repos.zsh (repo sync and cmux workspaces)
@@ -39,11 +40,10 @@
 #         VICKS_REVIEW_TTL=3600      seconds between those checks
 #         VICKS_REVIEW_MODEL=haiku   model for the check
 #         VICKS_REVIEW_EFFORT=low    how hard the model thinks (low keeps it quick and cheap)
+#         VICKS_CLAUDE_USAGE=0       hide the Claude plan usage section
+#         VICKS_CLAUDE_TTL=300       seconds between lookups of the Claude plan usage
 #         VICKS_MUSIC=0              hide the ncspot "now playing" section
-#         VICKS_TIPS=0               hide the rotating tips
-#         VICKS_TIPS_SECONDS=30      how long each page of tips stays up
-#         VICKS_TIPS_COUNT=5         tips per page
-#         VICKS_TIPS_FILE=path       your own tips file ("key | description" lines)
+#         VICKS_TIPS=0               hide the CMUX SHORTCUTS line
 #       These can also live in ~/.config/vicks/config as plain VAR=value lines.
 
 emulate -L zsh
@@ -143,7 +143,7 @@ kv() { printf "  %s%-12s%s %s%s%s\n" "$C_K" "$1" "$C_RESET" "$C_V" "$2" "$C_RESE
 rep() { local s=""; repeat ${2:-0} s+=$1; print -rn -- "$s"; }
 # section "title" ["dim suffix"]
 section() {
-  local n=$(( 46 - ${#1} - ${#2} )); (( n < 3 )) && n=3
+  vlen "$2"; local n=$(( 46 - ${#1} - REPLY )); (( n < 3 )) && n=3
   printf "%s%s%s%s %s%s%s%s%s\n" "$C_Y" "$C_BOLD" "$1" "$C_RESET" "$C_D" "${2:+$2 }" "$(rep ─ $n)" "$C_RESET"
 }
 # bar <pct> [width]  -> coloured usage bar
@@ -717,6 +717,93 @@ music_flags() {
   fi
 }
 
+# Claude plan usage: the session and weekly limits that /usage shows in Claude Code.
+#   - read from the endpoint /usage uses, with the login Claude Code already keeps (the
+#     macOS keychain, or ~/.claude/.credentials.json). The token is only read, never
+#     refreshed, so Claude Code's own login is left alone.
+#   - the token goes to curl on stdin, so it never shows up in `ps`
+#   - cached for VICKS_CLAUDE_TTL seconds (default 300) and fetched in the background
+# Shown only when Claude Code is signed in with a Claude account. VICKS_CLAUDE_USAGE=0 hides it.
+# claude_creds -> the JSON Claude Code keeps its login in
+claude_creds() {
+  local f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json
+  (( is_mac )) && security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null && return
+  [[ -r $f ]] && cat "$f"
+}
+# check_claude_usage -> P|plan, then L|label|percent|reset epoch per limit,
+# B|where the week's usage went, E|extra usage spent; or ERR <reason>
+check_claude_usage() {
+  local creds tok js plan
+  creds="$(claude_creds)"
+  tok="$(jq -r '.claudeAiOauth.accessToken // empty' <<< "$creds" 2>/dev/null)"
+  [[ -n $tok ]] || { print "ERR not signed in to Claude Code"; return; }
+  js="$(print -r -- "Authorization: Bearer $tok" | curl -s -m 10 -w '\n%{http_code}' -H @- \
+          -H 'anthropic-beta: oauth-2025-04-20' https://api.anthropic.com/api/oauth/usage 2>/dev/null)"
+  case ${js##*$'\n'} in
+    200) ;;
+    401) print "ERR login expired: start claude to renew it"; return ;;
+    429) print "ERR rate-limited, trying again later"; return ;;
+    000) print "ERR offline"; return ;;
+    *)   print "ERR usage lookup failed (HTTP ${js##*$'\n'})"; return ;;
+  esac
+  # "max" and "default_claude_max_20x" -> "Max 20x"
+  plan="$(jq -r '.claudeAiOauth | (.subscriptionType // "") + " " + ((.rateLimitTier // "") | capture("_(?<x>[0-9]+x)$").x // "")' <<< "$creds" 2>/dev/null)"
+  print -r -- "P|${(C)${plan% }}"
+  jq -r '
+    def clean: tostring | explode | map(if . < 32 or (. >= 127 and . < 160) or . == 124 then 32 else . end) | implode;
+    def epoch: if . == null then 0 else sub("\\.[0-9]+"; "") | sub("(\\+00:00|Z)$"; "Z") | fromdateiso8601 end;
+    ((.limits // [])[]
+      | [ "L",
+          (if .kind == "session" then "Session"
+           elif .scope.model.display_name? then "Week · " + (.scope.model.display_name | clean)
+           elif .group == "weekly" then "Week"
+           else (.kind | clean) end),
+          (.percent // 0 | floor), (.resets_at | epoch) ] | map(tostring) | join("|")),
+    ((.seven_day_breakdown.rows // []) | map(select(.percent > 0) | "\(.display_name | clean) \(.percent)%")
+      | select(length > 0) | "B|" + join(" · ")),
+    (.spend | select(.enabled == true and .used != null)
+      | "E|" + (.used.amount_minor / pow(10; .used.exponent) | tostring) + " " + (.used.currency | clean)
+        + (if .percent then " · \(.percent)% of the cap" else "" end))
+  ' <<< "${js%$'\n'*}" 2>/dev/null
+}
+# in_words <seconds> -> REPLY = "4h 21m", "2d 5h"
+in_words() {
+  local s=$1
+  if   (( s < 3600 ));  then REPLY="$(( s / 60 ))m"
+  elif (( s < 86400 )); then REPLY="$(( s / 3600 ))h $(( s % 3600 / 60 ))m"
+  else                       REPLY="$(( s / 86400 ))d $(( s % 86400 / 3600 ))h"
+  fi
+}
+blk_claude() {
+  [[ ${VICKS_CLAUDE_USAGE:-1} != 0 ]] && (( $+commands[jq] && $+commands[claude] )) || return 0
+  local res; res="$(cached -a claude_usage ${VICKS_CLAUDE_TTL:-300} check_claude_usage)"
+  [[ $res == "ERR not signed in"* ]] && return 0
+  local when="checking…"
+  if [[ -s $cache_dir/claude_usage ]]; then mtime "$cache_dir/claude_usage"; ago $(( EPOCHSECONDS - REPLY )); when=$REPLY; fi
+  local -a lines=("${(@f)res}")
+  local plan=${${(M)lines:#P\|*}#P|}
+  section "CLAUDE USAGE" "${plan:+$plan · }$when"
+  if [[ -z $res ]]; then print -r -- "  ${C_D}looking up your plan limits…${C_RESET}"; return 0; fi
+  if [[ $res == ERR* ]]; then print -r -- "  ${C_WARN}${res#ERR }${C_RESET}"; return 0; fi
+  local l label pct reset left rtxt
+  for l in $lines; do
+    case $l in
+      L\|*)
+        IFS='|' read -r _ label pct reset <<< "$l"
+        rtxt=""
+        if (( reset > EPOCHSECONDS )); then
+          left=$(( reset - EPOCHSECONDS ))
+          if (( left < 86400 )); then in_words $left; rtxt="resets in $REPLY"
+          else rtxt="resets $(strftime '%a %H:%M' $reset)"; fi
+        fi
+        kv "${label[1,12]}" "$(bar $pct)  ${C_D}${rtxt}"
+        ;;
+      B\|*) (( compact )) || kv "This week" "${C_D}${l#B|}" ;;
+      E\|*) kv "Extra usage" "${l#E|}" ;;
+    esac
+  done
+}
+
 # The biggest consumers, two lists side by side: by CPU and by memory.
 blk_top() {
   section "TOP APPS"
@@ -796,12 +883,9 @@ gpu_snapshot() {
   fi
 }
 
-blk_resources() {
-  section "RESOURCES"
-  local load cpu_pct mem_used_pct
-  load="$(uptime | sed -E 's/.*load averages?: //')"
-  cpu_pct=$cpu_total
-  kv "CPU" "$(bar $cpu_pct)  ${C_D}load $load"
+# mem_snapshot -> mem_pct, mem_used and mem_all (GB)
+local mem_pct=0 mem_used=0 mem_all=1
+mem_snapshot() {
   if (( is_mac )); then
     local pg active=0 wired=0 compressed=0
     pg=$(sysctl -n hw.pagesize)
@@ -809,19 +893,31 @@ blk_resources() {
       /Pages active/           {print "active="$3}
       /Pages wired/            {print "wired="$4}
       /occupied by compressor/ {print "compressed="$5}')"
-    local used_gb=$(( (active + wired + compressed) * pg / 1024 / 1024 / 1024 ))
-    mem_used_pct=$(( used_gb * 100 / mem_total ))
-    local note="${used_gb}/${mem_total} GB"; (( compact )) || note+=" (active+wired+compressed)"
-    kv "Memory" "$(bar $mem_used_pct)  ${C_D}${note}"
+    mem_used=$(( (active + wired + compressed) * pg / 1024 / 1024 / 1024 )); mem_all=$mem_total
+    mem_pct=$(( mem_used * 100 / mem_total ))
   else
     local mt=1 mu=0
     eval "$(free -m | awk '/Mem:/{print "mt="$2"; mu="$3}')"
-    kv "Memory" "$(bar $(( mu * 100 / mt )))  ${C_D}$(( mu / 1024 ))/$(( mt / 1024 )) GB"
+    mem_used=$(( mu / 1024 )); mem_all=$(( mt / 1024 )); mem_pct=$(( mu * 100 / mt ))
   fi
-  local dpct dused dtot davail
+}
+# disk_snapshot -> dpct (with %), dused, dtot, davail
+local dpct="" dused="" dtot="" davail=""
+disk_snapshot() {
   # On macOS "/" is the small sealed system volume; your files are on the Data volume.
   local dvol=/; [[ -d /System/Volumes/Data ]] && dvol=/System/Volumes/Data
   df -h $dvol 2>/dev/null | awk 'NR==2 {print $5, $3, $2, $4}' | read -r dpct dused dtot davail
+}
+
+blk_resources() {
+  section "RESOURCES"
+  local load
+  load="$(uptime | sed -E 's/.*load averages?: //')"
+  kv "CPU" "$(bar $cpu_total)  ${C_D}load $load"
+  mem_snapshot
+  local note="${mem_used}/${mem_all} GB"; (( compact || ! is_mac )) || note+=" (active+wired+compressed)"
+  kv "Memory" "$(bar $mem_pct)  ${C_D}${note}"
+  disk_snapshot
   if (( compact )); then kv "Disk" "$(bar ${dpct%\%})  ${C_D}${davail} free of ${dtot}"
   else kv "Disk" "$(bar ${dpct%\%})  ${C_D}${dused} used of ${dtot}, ${davail} free"; fi
   gpu_snapshot
@@ -903,12 +999,22 @@ ts_query() {
 blk_tailscale() {
   local ts=${commands[tailscale]:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}
   [[ -x $ts ]] && (( $+commands[jq] )) || return 0
-  section "TAILSCALE"
   local data; data="$(cached tailscale 20 ts_query "$ts")"
-  if [[ -z $data ]]; then kv "Status" "${C_D}not running"; return; fi
+  if [[ -z $data ]]; then section "TAILSCALE"; kv "Status" "${C_D}not running"; return; fi
   local -a rows=("${(@f)data}")
   local kind f1 f2 f3 f4 f5 f6 f7
   local -i total=0 online=0 shown=0 max=12
+  # the dashboard puts the peer count in the title instead of on a line of its own
+  if (( compact )); then
+    for r in ${rows:#S\|*}; do
+      IFS='|' read -r kind f1 f2 f3 f4 _ <<< "$r"
+      (( total++ )); [[ $f4 == true ]] && (( online++ ))
+    done
+    section "TAILSCALE" "${online} of ${total} online"
+    total=0 online=0
+  else
+    section "TAILSCALE"
+  fi
   (( compact )) && max=6
   local -a peers
   local nw=18 ow=8; (( compact )) && { nw=16; ow=6; }   # name and OS column widths
@@ -934,7 +1040,7 @@ blk_tailscale() {
       fi
     fi
   done
-  kv "Peers" "${C_OK}${online} online${C_D} of ${total}"
+  (( compact )) || kv "Peers" "${C_OK}${online} online${C_D} of ${total}"
   if [[ -n ${VICKS_IPERF_HOST:-} ]]; then
     local sp; sp="$(speed_line ts)"
     [[ -n $sp ]] && kv "Speed" "$sp"
@@ -952,23 +1058,21 @@ blk_route() {
     target_as=${target_org%% *}; target_name=${target_org#* }
     target_name=${target_name%,}; target_name=${${${${target_name% LLC}% Inc.}% Inc}% Ltd}
   fi
-  if [[ $trace_stop == owner && -n $target_as ]]; then section "ROUTE TO INTERNET" "until it reaches ${target_name}"
-  elif [[ $trace_stop == public ]]; then section "ROUTE TO INTERNET" "up to the first public address"
-  else section "ROUTE TO INTERNET" "traceroute to ${target}"; fi
+  local title
+  if [[ $trace_stop == owner && -n $target_as ]]; then title="until it reaches ${target_name}"
+  elif [[ $trace_stop == public ]]; then title="up to the first public address"
+  else title="traceroute to ${target}"; fi
   local trace
   trace="$(cached "trace_${target}" $ttl traceroute -n -q 1 -w 1 -m 20 "$target")"
   if [[ -z $trace ]]; then
+    section "ROUTE TO INTERNET" "$title"
     if (( async )); then kv "Trace" "${C_D}tracing…"; else kv "Trace" "${C_BAD}no route / traceroute unavailable"; fi
     return
   fi
-  if (( compact )); then
-    printf "  %s%-3s %-16s %-8s %s%s\n" "$C_K" "hop" "address" "latency" "what it is" "$C_RESET"
-  else
-    printf "  %s%-4s %-18s %-10s %-9s %s%s\n" "$C_K" "hop" "address" "kind" "latency" "name" "$C_RESET"
-  fi
-  local hop addr ms rest cls col name lat org latcol
+  # the hop lines are collected first: the dashboard's title says how far the route got
+  local hops hop addr ms rest cls col name lat org latcol
   local -i shown=0 reached=0
-  print -r -- "$trace" | awk '$1 ~ /^[0-9]+$/' | while read -r hop addr ms rest; do
+  hops="$(print -r -- "$trace" | awk '$1 ~ /^[0-9]+$/' | while read -r hop addr ms rest; do
     if [[ $addr == '*' ]]; then
       if (( compact )); then printf "  %s%-3s %-16s %-8s%s\n" "$C_D" "$hop" "*" "no reply" "$C_RESET"
       else printf "  %s%-4s %-18s %-10s %-9s%s\n" "$C_D" "$hop" "*" "no reply" "-" "$C_RESET"; fi
@@ -1010,6 +1114,9 @@ blk_route() {
       esac
     fi
   done
+  print -r -- "#|$shown|$reached")"
+  local -a hl=("${(@f)hops}")
+  IFS='|' read -r _ shown reached <<< "$hl[-1]"; hops=${(F)hl[1,-2]}
   mtime "$cache_dir/trace_${target}"; ago $(( EPOCHSECONDS - REPLY ))
   local summary
   if [[ $trace_stop == owner && -n $target_as ]]; then
@@ -1020,8 +1127,19 @@ blk_route() {
     else summary="${C_WARN}no public address reached${C_D}"; fi
   else summary="${shown} hops to ${target}"; fi
   if (( compact )); then
-    printf "  %s%s · traced %s%s\n" "$C_D" "$summary" "$REPLY" "$C_RESET"
+    # summary in the title, and no column header: the hop lines speak for themselves
+    if [[ $trace_stop == owner && -n $target_as ]]; then
+      if (( reached )); then summary="${target_name} in ${shown} hops"
+      else summary="${target_name} not reached in ${shown} hops"; fi
+    elif [[ $trace_stop == public ]]; then
+      if (( reached )); then summary="internet in ${shown} hops"; else summary="no public address reached"; fi
+    fi
+    section "ROUTE TO INTERNET" "${summary} · ${REPLY}"
+    [[ -n $hops ]] && print -r -- "$hops"
   else
+    section "ROUTE TO INTERNET" "$title"
+    printf "  %s%-4s %-18s %-10s %-9s %s%s\n" "$C_K" "hop" "address" "kind" "latency" "name" "$C_RESET"
+    [[ -n $hops ]] && print -r -- "$hops"
     printf "  %s%s · traced %s · run %shello --fresh%s to refresh%s\n" "$C_D" "$summary" "$REPLY" "$C_V" "$C_D" "$C_RESET"
   fi
 }
@@ -1257,39 +1375,14 @@ $(cat "$cache_dir/review_snapshot.txt" 2>/dev/null)"
   exec claude "$prompt"
 fi
 
-# Rotating tips: five lines at a time from a plain text file ("key | description").
-# The page changes every VICKS_TIPS_SECONDS, so the pinned banner cycles through them.
-#   blk_tips <width>   -> a block no wider than <width>
+# One line pointing at cmux's own list of keyboard shortcuts. In the pinned banner,
+# a click on "open ↗" opens cmux's Settings on Keyboard Shortcuts (tmux.conf sends the
+# key k). Shown only on a machine with cmux, not over SSH. VICKS_TIPS=0 hides it.
 blk_tips() {
-  local w=${1:-46} f=${VICKS_TIPS_FILE:-$here/cmux-tips.txt}
-  [[ ${VICKS_TIPS:-1} != 0 && -r $f ]] || return 0
-  # the default list is about cmux: show it only on a machine that has cmux, not over SSH
-  if [[ -z ${VICKS_TIPS_FILE:-} ]]; then
-    (( is_remote )) && return 0
-    [[ -d /Applications/cmux.app ]] || (( $+commands[cmux] )) || return 0
-  fi
-  local -a tips=("${(@f)$(grep -vE '^[[:space:]]*(#|$)' "$f")}")
-  local n=$#tips per=${VICKS_TIPS_COUNT:-5} secs=${VICKS_TIPS_SECONDS:-30}
-  (( n > 0 && per > 0 && secs > 0 )) || return 0
-  local pages=$(( (n + per - 1) / per ))
-  local page=$(( (EPOCHSECONDS / secs) % pages ))
-  local title="${VICKS_TIPS_TITLE:-CMUX TIPS}" count="$(( page + 1 ))/${pages}"
-  local rule=$(( w - ${#title} - ${#count} - 2 )); (( rule < 0 )) && rule=0
-  print -r -- "${C_Y}${C_BOLD}${title}${C_RESET} ${C_D}${count} $(rep ─ $rule)${C_RESET}"
-  local -a keys descs
-  local i t k d keyw=0
-  for (( i = 0; i < per && i < n; i++ )); do
-    t=${tips[$(( (page * per + i) % n + 1 ))]}
-    k=${t%%|*}; d=${t#*|}
-    k=${${k##[[:space:]]#}%%[[:space:]]#}; d=${${d##[[:space:]]#}%%[[:space:]]#}
-    keys+=("$k"); descs+=("$d")
-    (( ${#k} > keyw )) && keyw=${#k}
-  done
-  local room=$(( w - keyw - 2 ))
-  for (( i = 1; i <= $#keys; i++ )); do
-    d=$descs[i]; (( room > 3 && ${#d} > room )) && d="${d[1,room-1]}…"
-    print -r -- "${C_INFO}${(r:keyw:: :)keys[i]}${C_RESET}  ${C_V}${d}${C_RESET}"
-  done
+  [[ ${VICKS_TIPS:-1} != 0 ]] && (( ! is_remote )) || return 0
+  [[ -d /Applications/cmux.app ]] || (( $+commands[cmux] )) || return 0
+  if (( dash )); then print -r -- "${C_Y}${C_BOLD}CMUX SHORTCUTS${C_RESET}  ${C_INFO}open ↗${C_RESET}"
+  else print -r -- "${C_Y}${C_BOLD}CMUX SHORTCUTS${C_RESET}  ${C_D}run ${C_V}cmux shortcuts${C_RESET}"; fi
 }
 
 # ---------------------------------------------------- one-shot banner ---
@@ -1303,13 +1396,15 @@ if (( ! dash )); then
   print; blk_who
   print; blk_resources
   print; blk_top
+  local cl_out; cl_out="$(blk_claude)"
+  [[ -n $cl_out ]] && { print; print -r -- "$cl_out"; }
   local mu_out; mu_out="$(blk_music)"
   [[ -n $mu_out ]] && { print; print -r -- "$mu_out"; }
   print; blk_network
   local ts_out; ts_out="$(blk_tailscale)"
   [[ -n $ts_out ]] && { print; print -r -- "$ts_out"; }
   (( nonet )) || { print; blk_route; }
-  local tips_out; tips_out="$(blk_tips 46)"
+  local tips_out; tips_out="$(blk_tips)"
   [[ -n $tips_out ]] && { print; print -r -- "$tips_out"; }
   print
   return 0 2>/dev/null || exit 0
@@ -1318,11 +1413,12 @@ fi
 # ------------------------------------------------------ live dashboard ---
 # flow <ncols> <minheight> <section>...  -> reply = one string per column.
 # Sections are kept whole and spread so the columns end up about equally tall.
+# They are stacked with no blank line between them: each one opens with its own title rule.
 flow() {
   local n=$1; shift
   local -a secs=("$@") hs
   local s m=$#
-  for s in "$@"; do hs+=($(( ${#${(f)s}} + 1 ))); done
+  for s in "$@"; do hs+=(${#${(f)s}}); done
   (( n > m )) && n=$m
   # hsum <from> <to> -> REPLY = total height of sections from..to
   hsum() { local k t=0; for (( k = $1; k <= $2; k++ )); do (( t += hs[k] )); done; REPLY=$t; }
@@ -1347,7 +1443,7 @@ flow() {
   local cur="" k
   for (( k = 1; k <= m; k++ )); do
     if (( k == cut1 || k == cut2 )); then reply+=("$cur"); cur=""; fi
-    [[ -n $cur ]] && cur+=$'\n\n'
+    [[ -n $cur ]] && cur+=$'\n'
     cur+=$secs[k]
   done
   reply+=("$cur")
@@ -1362,8 +1458,9 @@ render_dash() {
   s_art="$(blk_art)"; s_sys="$(blk_system)"; s_res="$(blk_resources)"; s_top="$(blk_top)"
   s_net="$(blk_network)"; s_ts="$(blk_tailscale)"
   (( nonet )) || s_route="$(blk_route)"
-  local s_mus; s_mus="$(blk_music)"
+  local s_mus s_cl; s_mus="$(blk_music)"; s_cl="$(blk_claude)"
   local -a secs=("$s_sys" "$s_res" "$s_top")
+  [[ -n $s_cl ]] && secs+=("$s_cl")
   [[ -n $s_mus ]] && secs+=("$s_mus")
   secs+=("$s_net")
   [[ -n $s_ts ]] && secs+=("$s_ts")
@@ -1375,7 +1472,7 @@ render_dash() {
   local s_art_tips="$s_art" s_tips s_rev
   s_rev="$(blk_review $artw)"
   [[ -n $s_rev ]] && s_art_tips+=$'\n\n'"$s_rev"
-  s_tips="$(blk_tips $artw)"
+  s_tips="$(blk_tips)"
   [[ -n $s_tips ]] && s_art_tips+=$'\n\n'"$s_tips"
 
   local -a C Wd        # column texts and widths
@@ -1384,7 +1481,7 @@ render_dash() {
     # one column: art on top when it fits, then every section
     s_rev="$(blk_review 46)"; [[ -n $s_rev ]] && secs=("$s_rev" "${secs[@]}")
     (( want_art && cols >= artw && side )) && secs=("$s_art" "${secs[@]}")
-    s_tips="$(blk_tips 46)"; [[ -n $s_tips ]] && secs+=("$s_tips")
+    s_tips="$(blk_tips)"; [[ -n $s_tips ]] && secs+=("$s_tips")
     flow 1 "${secs[@]}"; C=("${reply[@]}"); Wd=($cols)
   elif (( want_art && cols >= artw + 2 * (52 + gap) )); then
     # art on the left, sections balanced over the remaining columns;
@@ -1396,7 +1493,7 @@ render_dash() {
   else
     local n=$(( (cols + gap) / (colw + gap) )); (( n > 3 )) && n=3
     s_rev="$(blk_review 46)"; [[ -n $s_rev ]] && secs=("$s_rev" "${secs[@]}")
-    s_tips="$(blk_tips 46)"; [[ -n $s_tips ]] && secs+=("$s_tips")
+    s_tips="$(blk_tips)"; [[ -n $s_tips ]] && secs+=("$s_tips")
     flow $n "${secs[@]}"; C=("${reply[@]}"); repeat $#reply Wd+=($colw)
   fi
 
@@ -1417,7 +1514,85 @@ render_dash() {
     done
     out+=("$line")
   done
+  # the pinned top banner: "▾ smaller" in the top right corner, where the small view has
+  # "▴ bigger" (two spare columns: some terminals draw ▾ two cells wide)
+  if (( ! side && ! once && $#out )); then
+    vlen "$out[1]"; (( REPLY > cols - 12 )) && { vtrunc "$out[1]" $(( cols - 12 )); out[1]=$REPLY; }
+    vlen "$out[1]"; out[1]+="${(l:cols - REPLY - 11:: :)empty}${C_INFO}▾ smaller${C_RESET}"
+  fi
 }
+
+# The small view: the cockpit as a two-line strip, for when screen room matters more
+# than detail. "▴ bigger" (or the + key, or `cockpit bigger`) goes back to the full view.
+# pct_col <pct> -> REPLY = the number in the colour its usage bar would have
+pct_col() {
+  local p=${1%.*} col=$C_OK; (( p >= 70 )) && col=$C_WARN; (( p >= 90 )) && col=$C_BAD
+  REPLY="${col}${p}%${C_RESET}"
+}
+# render_small <cols> -> out = the two lines
+render_small() {
+  local cols=$1 sep="${C_D}  │  ${C_RESET}" l
+  net_basics; proc_snapshot; mem_snapshot; disk_snapshot; gpu_snapshot
+  local r1="${C_Y}${C_BOLD}COCKPIT${C_RESET} ${C_D}$(hostname -s)${C_RESET}${sep}"
+  pct_col $cpu_total; r1+="${C_K}CPU${C_RESET} $REPLY  "
+  pct_col $mem_pct;   r1+="${C_K}Mem${C_RESET} $REPLY ${C_D}${mem_used}/${mem_all} GB${C_RESET}  "
+  pct_col ${dpct%\%};  r1+="${C_K}Disk${C_RESET} $REPLY ${C_D}${davail} free${C_RESET}"
+  [[ -n $gpu_pct ]] && { pct_col $gpu_pct; r1+="  ${C_K}GPU${C_RESET} $REPLY"; }
+  # Claude plan limits, from the same cache as the CLAUDE USAGE section
+  if [[ ${VICKS_CLAUDE_USAGE:-1} != 0 ]] && (( $+commands[jq] && $+commands[claude] )); then
+    local res label pct lims=""
+    res="$(cached -a claude_usage ${VICKS_CLAUDE_TTL:-300} check_claude_usage)"
+    for l in "${(@f)res}"; do
+      [[ $l == L\|* ]] || continue
+      IFS='|' read -r _ label pct _ <<< "$l"; pct_col $pct
+      lims+="${lims:+  }${C_K}${label}${C_RESET} $REPLY"
+    done
+    [[ -n $lims ]] && r1+="${sep}${C_K}Claude${C_RESET}  ${lims}"
+  fi
+
+  local r2="${C_K}${iface:-none}${C_RESET}${ssid:+ ${C_D}\"$ssid\"} ${C_INFO}${private_ip:-no address}${C_RESET}"
+  if (( ! nonet )) && [[ -s $cache_dir/pubip ]]; then
+    local pip; pip=$(jq -r '.ip // empty' < "$cache_dir/pubip" 2>/dev/null)
+    [[ -n $pip && $pip != $private_ip ]] && r2+=" ${C_D}→${C_RESET} ${C_INFO}${pip}${C_RESET}"
+  fi
+  local sp; sp="$(speed_line inet)"; [[ -n $sp ]] && r2+="  ${sp%% ·*}${C_RESET}"
+  local ts=${commands[tailscale]:-/Applications/Tailscale.app/Contents/MacOS/Tailscale} data r
+  if [[ -x $ts ]] && (( $+commands[jq] )); then
+    data="$(cached tailscale 20 ts_query "$ts")"
+    local -i total=0 online=0
+    local kind f1 f2 f3 f4
+    for r in "${(@f)data}"; do
+      IFS='|' read -r kind f1 f2 f3 f4 _ <<< "$r"
+      [[ $kind == P ]] && { (( total++ )); [[ $f4 == true ]] && (( online++ )); }
+    done
+    if [[ -z $data ]]; then r2+="${sep}${C_K}Tailscale${C_RESET} ${C_D}not running${C_RESET}"
+    elif [[ $data == "S|Running|"* ]]; then r2+="${sep}${C_K}Tailscale${C_RESET} ${C_OK}●${C_RESET} ${online} of ${total} online"
+    else IFS='|' read -r kind f1 _ <<< "${data%%$'\n'*}"; r2+="${sep}${C_K}Tailscale${C_RESET} ${C_WARN}○ ${f1}${C_RESET}"; fi
+  fi
+  # the ATTENTION heading in its colour, then its first line
+  local -a rv=("${(@f)$(blk_review 200)}")
+  (( $#rv > 1 )) && r2+="${sep}${rv[1]%% *}${C_RESET} ${rv[2]}"
+  local -a mu=("${(@f)$(blk_music)}")
+  [[ -n ${mu[2]:-} && ${mu[2]} != *"Nothing is playing"* ]] && r2+="${sep}${mu[2]##[[:space:]]#}"
+
+  # "▴ bigger" sits at the right end of the first line, where it is never cut off
+  local more="${C_INFO}▴ bigger${C_RESET}" empty=""
+  vlen "$r1"; (( REPLY > cols - 10 )) && { vtrunc "$r1" $(( cols - 10 )); r1=$REPLY; }
+  # two spare columns: some terminals draw ▴ two cells wide
+  vlen "$r1"; r1+="${(l:cols - REPLY - 10:: :)empty}${more}"
+  vlen "$r2"; (( REPLY > cols )) && { vtrunc "$r2" $cols; r2=$REPLY; }
+  out=("$r1" "$r2")
+}
+
+# The view the pinned banner shows: full or small. One setting for every banner, kept
+# in the cache folder, so a new banner opens in the view you chose last.
+local view_file=$cache_dir/dash_view
+dash_view() {
+  REPLY=${VICKS_DASH_VIEW:-full}
+  [[ -r $view_file ]] && REPLY=$(<$view_file)
+  [[ $REPLY == small ]] || REPLY=full
+}
+set_view() { print -r -- "$1" > "$view_file"; }
 
 term_size() {   # -> rows cols
   if (( force_cols )); then rows=500; cols=$force_cols
@@ -1427,7 +1602,8 @@ term_size() {   # -> rows cols
 
 local rows cols
 if (( once )); then
-  term_size; render_dash $cols
+  term_size; dash_view
+  if [[ $REPLY == small ]] && (( ! side )); then render_small $cols; else render_dash $cols; fi
   print -rl -- "${out[@]}"
   return 0 2>/dev/null || exit 0
 fi
@@ -1438,12 +1614,17 @@ trap 'dash_cleanup; exit 0' INT TERM HUP
 trap 'dash_cleanup' EXIT
 print -n $'\e[?25l\e[?7l\e[2J'      # hide cursor, no line wrap, clear
 
-local key buf last t wh ph want prev_size zoomed
+local key buf last t wh ph want prev_size zoomed view
 while true; do
   term_size; prev_size="$rows $cols"
-  render_dash $cols
-  # side pane too short for everything: drop the art so the data fits
-  if (( side && $#out > rows )); then VICKS_DASH_ART=0 render_dash $cols; fi
+  # the side column is full height anyway, so it always shows the full view
+  dash_view; view=$REPLY; (( side )) && view=full
+  if [[ $view == small ]]; then render_small $cols
+  else
+    render_dash $cols
+    # side pane too short for everything: drop the art so the data fits
+    if (( side && $#out > rows )); then VICKS_DASH_ART=0 render_dash $cols; fi
+  fi
   fresh=0
 
   # inside tmux as the top pane: grow or shrink the pane to fit the content
@@ -1451,7 +1632,7 @@ while true; do
     tmux display-message -p -t "$TMUX_PANE" '#{window_height} #{pane_height} #{window_zoomed_flag}' 2>/dev/null | read -r wh ph zoomed
     if [[ -n $wh && $zoomed != 1 ]]; then
       want=$#out; (( want > wh * 60 / 100 )) && want=$(( wh * 60 / 100 ))
-      if (( want != ph && want > 2 )); then
+      if (( want != ph && want >= 2 )); then
         tmux resize-pane -t "$TMUX_PANE" -y $want 2>/dev/null
         rows=$want; prev_size="$rows $cols"
       fi
@@ -1483,10 +1664,16 @@ while true; do
       o)   music_open ;;
       z)   music_cmd shuffle 0.3; music_cmd noop 0.3; break ;;
       l)   music_cmd repeat 0.3;  music_cmd noop 0.3; break ;;   # steps off, queue, track
+      # smaller / bigger: the small two-line view or the full one (also `cockpit smaller`)
+      -)   set_view small; break ;;
+      +)   set_view full;  break ;;
+      k)   ( ${commands[cmux]:-/Applications/cmux.app/Contents/Resources/bin/cmux} shortcuts >/dev/null 2>&1 & ) ;;
     esac
     if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
       (( $(tmux list-panes -t "$TMUX_PANE" 2>/dev/null | wc -l) <= 1 )) && exit 0
     fi
     term_size; [[ "$rows $cols" != $prev_size ]] && break
+    # the view was changed from another banner or with `cockpit smaller` / `cockpit bigger`
+    (( ! side )) && { dash_view; [[ $REPLY != $view ]] && break; }
   done
 done

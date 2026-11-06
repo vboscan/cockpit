@@ -12,6 +12,7 @@
 #   cockpit.sh here       move this workspace's banner into the terminal you are in
 #   cockpit.sh reconcile  make sure each workspace has exactly one banner (runs by itself)
 #   cockpit.sh refresh    look everything up again right now
+#   cockpit.sh smaller    shrink every banner to its two-line view (bigger: the full view)
 #   cockpit.sh speedtest  run the speed tests again right now
 #   cockpit.sh review     ask Claude to check the dashboard now and list what needs attention
 #   cockpit.sh fix [n]    open Claude on those findings, or on finding number n
@@ -29,6 +30,11 @@ case $action in
     # refill the shared cache; every open dashboard shows it on its next redraw
     zsh "$VICKS_HOME/banner.zsh" --fresh >/dev/null 2>&1
     echo "Refreshed. Update checks continue in the background."
+    exit 0 ;;
+  # the banners read this file every second, the same one their ▾ smaller / ▴ bigger set
+  smaller|small|bigger|big)
+    d=${XDG_CACHE_HOME:-$HOME/.cache}/vicks; mkdir -p "$d"
+    case $action in sm*) echo small ;; *) echo full ;; esac > "$d/dash_view"
     exit 0 ;;
 esac
 
