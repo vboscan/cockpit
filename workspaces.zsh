@@ -8,6 +8,8 @@
 #   workspaces.zsh colour                 give every workspace and group its colour
 #   workspaces.zsh status                 a green "Connected" or red failure pill on
 #                                         each remote workspace
+#   workspaces.zsh box-cmd <workspace-id> what a new terminal in the "Devbox (local)"
+#                                         folder runs to open inside the local devbox
 #
 # `adopt` runs when a terminal starts (vicks.zsh). cmux has no per-group setting for new
 # workspaces, so a workspace opened in the remote group starts as a local terminal; this
@@ -25,10 +27,11 @@
 # restarted. cmux's own SSH details stay as they are; the pill adds the colour.
 typeset -g here=${0:A:h}
 typeset -g REMOTE_GROUP=vicks-repos-remote     # external id (prefix) of the remote machine's folders, set by repos.zsh
+typeset -g BOX_GROUP=vicks-repos-box           # external id of the "Devbox (local)" folder, set by repos.zsh
 typeset -g PILL=vicks-link
 # bright, far-apart hues: no red or green (connection state), no gold or grey (groups)
 typeset -ga REPO_COLORS=("#339AF0" "#FD7E14" "#CC5DE8" "#15AABF" "#F06595" "#7048E8" "#A0785A" "#F8F9FA" "#0B7285")
-typeset -gA GROUP_COLORS=(vicks-repos-local "#ADB5BD" vicks-repos-remote "#FAB005")
+typeset -gA GROUP_COLORS=(vicks-repos-local "#ADB5BD" vicks-repos-remote "#FAB005" vicks-repos-box "#FAB005")
 # colours earlier versions set; still "ours", so they get replaced
 typeset -ga OLD_COLORS=("#0E6B8C" "#1565C0" "#7B3F00" "#283593" "#AD1457" "#1A5276" "#A04000" "#6A1B9A" "#006B6B" "#880E4F" "#3E4B5E" "#B8860B")
 
@@ -90,12 +93,12 @@ adopt() {
 colour() {
   local conf=${VICKS_REPOS_CONF:-$here/repos.conf} line repo name w remote_name="" i c r
   local -a words ours=(${(U)REPO_COLORS} ${(U)GROUP_COLORS} ${(U)OLD_COLORS})
-  local -a repos; local -A machines           # repo name -> " local remote"
+  local -a repos; local -A machines           # repo name -> " local remote box"
   for line in "${(@f)$(<$conf)}"; do
     words=(${=line%%\#*}); (( $#words )) || continue
     if [[ $words[1] == remote ]]; then remote_name=${${words[2]#*@}%%.*}; continue; fi
     name=${words[1]##*/}; repos+=($name)
-    for w in $words[2,-1]; do [[ $w == (local|remote) ]] && machines[$name]+=" $w"; done
+    for w in $words[2,-1]; do [[ $w == (local|remote|box) ]] && machines[$name]+=" $w"; done
   done
 
   # a repo takes the first colour no repo on any of its machines has yet
@@ -114,6 +117,7 @@ colour() {
     for w in ${=machines[$name]}; do
       case $w in
         local)  want+=("$name · this Mac" $repo_colour[$name]) ;;
+        box)    want+=("$name · devbox" $repo_colour[$name]) ;;
         remote) [[ -n $remote_name ]] && want+=("$name · $remote_name" $repo_colour[$name]) ;;
       esac
     done
@@ -144,10 +148,11 @@ colour() {
     fi
     [[ -n $cur ]] && count[$grp:${(U)cur}]=$(( ${count[$grp:${(U)cur}]:-0} + 1 ))
   done
+  local best n min
   for r in $rows; do                # then any uncoloured workspace, group headers aside
     IFS='|' read -r ref desc cur grp anchor <<< "$r"
     [[ -z $cur && -z ${want[$desc]} && $anchor != true ]] || continue
-    local best="" n min=999999
+    best="" min=999999
     for c in $REPO_COLORS; do
       n=${count[$grp:${(U)c}]:-0}; (( n < min )) && { min=$n; best=$c; }
     done
@@ -187,12 +192,33 @@ status() {
   print -rl -- $now > "$f.tmp.$$" && mv -f "$f.tmp.$$" "$f"
 }
 
+# box_cmd <workspace-id>: when that workspace is in the "Devbox (local)" group, print
+# what a new terminal there runs: a shell inside the local devbox, then a Mac shell when
+# you leave it. Prints nothing otherwise. The box is only started when it is not running:
+# `up` recreates a box whose image changed, which would end every session open in it, so
+# a box that is already running is only entered.
+box_cmd() {
+  local id=$1 line dir="" ref
+  local -a words
+  for line in "${(@f)$(<${VICKS_REPOS_CONF:-$here/repos.conf})}"; do
+    words=(${=line%%\#*})
+    (( $#words && ${words[(Ie)box]} )) && { dir=${VICKS_REPOS_DIR:-$HOME/Git}/${words[1]##*/}; break; }
+  done
+  [[ -n $id && -x $dir/scripts/local-devbox.sh ]] || return 0
+  ref=$(cmux workspace list --json 2>/dev/null | jq -r --arg id "$id" '.workspaces[] | select(.id == $id) | .ref') || return 0
+  [[ -n $ref ]] || return 0
+  cmux workspace-group list --json 2>/dev/null | jq -e --arg x "$BOX_GROUP" --arg r "$ref" \
+    'any(.groups[]; .external_id == $x and (.member_workspace_refs | index($r)))' >/dev/null || return 0
+  print -r -- "cd ${(q)dir} && { docker inspect -f '{{.State.Running}}' devbox 2>/dev/null | grep -qx true || scripts/local-devbox.sh up; } && scripts/local-devbox.sh shell; exec \"\${SHELL:-/bin/zsh}\" -l"
+}
+
 export CMUX_QUIET=1
 (( $+commands[cmux] && $+commands[jq] )) || exit 0
 case $1 in
+  box-cmd) box_cmd "$2" ;;
   new)    adopt "$2"; colour ;;
   adopt)  adopt "$2" ;;
   colour) colour ;;
   status) status ;;
-  *) print -u2 "usage: workspaces.zsh new|adopt <workspace-id> | colour | status"; exit 2 ;;
+  *) print -u2 "usage: workspaces.zsh new|adopt|box-cmd <workspace-id> | colour | status"; exit 2 ;;
 esac
