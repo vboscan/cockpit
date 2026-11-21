@@ -4,7 +4,9 @@
   "shortcuts": {
     "bindings": {
       "splitBrowserDown": "cmd+ctrl+b",
-      "splitBrowserRight": "cmd+shift+b"
+      "splitBrowserRight": "cmd+shift+b",
+      "openBrowser": "cmd+shift+t",
+      "reopenClosedBrowserPanel": "cmd+shift+l"
     }
   },
   // <<< vicks-prompt-hello-world <<<

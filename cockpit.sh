@@ -142,12 +142,14 @@ zsh "$VICKS_HOME/banner.zsh" --kick >/dev/null 2>&1 &
 # session-closed hook reconciles, so a workspace that lost its banner gets it back in
 # another terminal.
 rec="VICKS_TMUX_SOCKET='$sock' sh '$VICKS_HOME/cockpit.sh' reconcile"
+# VICKS_SESSION_CMD, when set, is what the session's first pane runs instead of a plain
+# shell (vicks.zsh sets it for a terminal in the "Devbox (local)" folder).
 if [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
-  t new-session \; set-option destroy-unattached on \; set-option @vicks_layout "$layout" \; \
+  t new-session ${VICKS_SESSION_CMD:+"$VICKS_SESSION_CMD"} \; set-option destroy-unattached on \; set-option @vicks_layout "$layout" \; \
     set-option @vicks_ws "$CMUX_WORKSPACE_ID" \; \
     set-hook -g session-closed "run-shell -b \"$rec\"" \; run-shell -b "$rec"
 else
-  t new-session \; set-option destroy-unattached on \; set-option @vicks_layout "$layout" \; \
+  t new-session ${VICKS_SESSION_CMD:+"$VICKS_SESSION_CMD"} \; set-option destroy-unattached on \; set-option @vicks_layout "$layout" \; \
     set-option -F @vicks_ws 'solo-#{session_id}' \; \
     set-hook -g session-closed "run-shell -b \"$rec\"" \; run-shell -b "$rec"
 fi

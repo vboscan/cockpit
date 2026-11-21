@@ -10,12 +10,14 @@
 # full report is kept in ~/.cache/vicks/repos_report.
 #
 # Workspaces: one per repo, in a "Local" group for this Mac and a group named after the
-# remote host. A workspace is recognised by its description ("cockpit · this Mac"), so
-# renaming one is fine, and one you close comes back on the next run. Nothing is ever
-# closed. A remote workspace that reconnected into ~ is sent back to its repo while its
-# shell sits idle there, and joins the repo's Claude session when the remote machine
-# keeps one in a tmux session of the repo's name. cmux only talks to processes started inside it, so this part is skipped when
-# the script runs from anywhere else.
+# remote host, plus one in a "Devbox (local)" group for each repo marked `box`, which opens inside
+# the devbox that repo runs on this Mac. A workspace is recognised by its description
+# ("cockpit · this Mac"), so renaming one is fine, and one you close comes back on the
+# next run. Nothing is ever closed. A remote workspace that reconnected into ~ is sent
+# back to its repo while its shell sits idle there, and joins the repo's Claude session
+# when the remote machine keeps one in a tmux session of the repo's name. cmux only talks
+# to processes started inside it, so this part is skipped when the script runs from
+# anywhere else.
 typeset -g here=${0:A:h}
 
 main() {
@@ -36,7 +38,7 @@ done
 mkdir -p "$cache_dir"
 
 local remote="" remote_base="~" line repo
-local -a local_repos remote_repos words
+local -a local_repos remote_repos box_repos words   # box_repos: names of repos marked `box`
 local -A repo_group                    # repo name -> folder for its remote workspace
 local w
 for line in "${(@f)$(<$conf)}"; do
@@ -47,6 +49,7 @@ for line in "${(@f)$(<$conf)}"; do
   for w in $words[2,-1]; do [[ $w == group=?* ]] && repo_group[${repo##*/}]=${w#group=}; done
   (( ${words[(Ie)local]} ))  && local_repos+=($repo)
   (( ${words[(Ie)remote]} )) && remote_repos+=($repo)
+  (( ${words[(Ie)box]} ))    && box_repos+=(${repo##*/})
 done
 local remote_name=${${remote#*@}%%.*}
 
@@ -73,11 +76,15 @@ open_cmd() {
   local n=${(q)1:t}
   REPLY="cd ${(q)1} && if tmux has-session -t =$n 2>/dev/null; then tmux attach -t =$n; fi; exec \"\${SHELL:-/bin/bash}\" -l"
 }
+# A box workspace gets no command of its own: its terminal starts the usual login shell,
+# and vicks.zsh, seeing a terminal in the "Devbox (local)" folder, opens the cockpit with
+# the box shell as its pane (`workspaces.zsh box-cmd`). That keeps the Mac's pinned
+# banner above the box, the same as in every other terminal of the folder.
 # ensure_ws <group-name> <group-id> <label> <kind> <result-line>...
 local -a ws_new
 ensure_ws() {
   local gname=$1 gid=$2 label=$3 kind=$4; shift 4
-  local group="" have r name state detail dir desc ref
+  local group="" have r name state detail dir desc ref after
   have="$(cmux workspace list --json 2>/dev/null | jq -r '.workspaces[].description // empty')" || return
   for r in "$@"; do
     IFS='|' read -r name state detail dir <<< "$r"
@@ -87,8 +94,12 @@ ensure_ws() {
     if [[ -z $group ]]; then
       group=$(cmux workspace-group create --name "$gname" --external-id "$gid" --cwd "$local_base" --json 2>/dev/null | jq -r '.group.ref // empty')
       [[ -n $group ]] || return
+      if [[ $kind == box ]]; then     # the Devbox (local) folder sits right after Local
+        after=$(cmux workspace-group list --json 2>/dev/null | jq -r '[.groups[] | select(.external_id == "vicks-repos-local")][0].ref // empty')
+        [[ -n $after ]] && cmux workspace-group move "$group" --after "$after" >/dev/null 2>&1
+      fi
     fi
-    if [[ $kind == local ]]; then
+    if [[ $kind == (local|box) ]]; then
       cmux new-workspace --name "$name" --description "$desc" --cwd "$dir" --focus false \
         --group "$group" --group-placement end >/dev/null 2>&1 && ws_new+=("$desc")
     else
@@ -202,12 +213,16 @@ place_ws() {
 export CMUX_QUIET=1
 if (( use_cmux && $+commands[cmux] && $+commands[jq] )) && cmux workspace list --json >/dev/null 2>&1; then
   ensure_ws Local vicks-repos-local "this Mac" local "${local_out[@]}"
+  # a box workspace needs the local clone: the script that runs the box lives in it
+  local -a box_out
+  for line in "${local_out[@]}"; do (( ${box_repos[(Ie)${line%%|*}]} )) && box_out+=("$line"); done
+  (( $#box_out )) && ensure_ws "Devbox (local)" vicks-repos-box devbox box "${box_out[@]}"
   if [[ -n $remote ]]; then
     ensure_ws "${(C)${remote_name%-<->}}" vicks-repos-remote "$remote_name" remote "${remote_out[@]}"
     place_ws "${remote_out[@]}"
     recd_ws "${remote_out[@]}"
   fi
-  zsh "$here/workspaces.zsh" colour      # repo colours for any workspace just added
+  zsh "$here/workspaces.zsh" colour >/dev/null 2>&1   # repo colours for any workspace just added
 fi
 
 # ----------------------------------------------------------------- report ---

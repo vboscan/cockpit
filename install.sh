@@ -185,7 +185,7 @@ if [ -f "$CMUX_JSON" ] && [ -f "$REPO/cmux/shortcuts.jsonc" ]; then
       }
       { print }
     ' "$CMUX_JSON.vicks-backup" > "$CMUX_JSON"
-    echo "cmux: browser split shortcuts added to $CMUX_JSON (cmd+shift+b right, cmd+ctrl+b below)."
+    echo "cmux: browser split shortcuts added to $CMUX_JSON (cmd+shift+b right, cmd+ctrl+b below, cmd+shift+t new browser tab)."
   fi
 fi
 

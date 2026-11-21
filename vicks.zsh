@@ -183,12 +183,18 @@ _vicks_wants_cockpit() {
 
 if _vicks_wants_cockpit; then
   typeset -i _vicks_t0=$SECONDS
-  if cockpit && (( SECONDS - _vicks_t0 >= 3 )); then
+  # A terminal in the "Devbox (local)" folder opens inside the local devbox; leaving the
+  # box leaves you in a Mac shell. VICKS_NO_BOX=1 turns it off.
+  typeset _vicks_box=""
+  if [[ -n ${CMUX_WORKSPACE_ID:-} && -z ${VICKS_NO_BOX:-} ]]; then
+    _vicks_box=$(zsh "$VICKS_HOME/workspaces.zsh" box-cmd "$CMUX_WORKSPACE_ID" 2>/dev/null)
+  fi
+  if VICKS_SESSION_CMD=$_vicks_box cockpit && (( SECONDS - _vicks_t0 >= 3 )); then
     exit        # the terminal *was* the cockpit: leaving it closes the terminal
   fi
   # tmux failed or ended at once: never lock the user out, fall back to a plain shell
   print -P "%F{214}The cockpit did not start. This is a normal shell. Set VICKS_AUTO_COCKPIT=0 in ~/.zshrc to stop trying.%f"
-  unset _vicks_t0
+  unset _vicks_t0 _vicks_box
 elif [[ -z ${VICKS_NO_BANNER:-} && -z ${VICKS_PLAIN:-} && -t 1 ]]; then
   hello --new-window ${VICKS_NO_NET:+--no-net}
 fi
